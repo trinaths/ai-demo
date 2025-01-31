@@ -40,10 +40,15 @@ metadata:
   name: ai-agent
   namespace: ai-workloads
 spec:
-  selector:
-    app: ai-agent  # Must match deployment labels
+  type: NodePort
   ports:
-    - protocol: TCP
-      port: 5000
+    - port: 514
+      targetPort: 514
+      protocol: UDP
+      nodePort: 30514  # Manually defined NodePort
+    - port: 5000
       targetPort: 5000
-  type: ClusterIP  # Internal Kubernetes service
+      protocol: TCP
+      nodePort: 30500
+  selector:
+    app: ai-agent
