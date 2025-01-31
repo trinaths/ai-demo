@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-inference
+  namespace: ai-workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-inference
+  template:
+    metadata:
+      labels:
+        app: ai-inference
+    spec:
+      containers:
+      - name: ai-inference
+        image: quay.io/trinathsquay/ai-anomaly-model:latest
+        ports:
+        - containerPort: 8501
+      imagePullSecrets:
+        - name: myquay
+
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-inference
+  namespace: ai-workloads
+spec:
+  selector:
+    app: ai-inference  # Must match deployment labels
+  ports:
+    - protocol: TCP
+      port: 8501
+      targetPort: 8501
+  type: ClusterIP  # Internal Kubernetes service
