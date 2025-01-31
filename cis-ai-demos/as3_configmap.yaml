@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-traffic-control
+  namespace: ai-workloads
+  labels:
+    f5nr: "true"
+data:
+  template: |
+    {
+    "class": "AS3",
+        "declaration": {
+            "class": "ADC",
+            "schemaVersion": "3.50.0",
+            "id": "ai-traffic-control",
+            "ai-tenant": {
+                "class": "Tenant",
+                "application": {
+                    "class": "Application",
+                    "malicious_ip_data_group": {
+                        "class": "Data_Group",
+                        "keyDataType": "ip",
+                        "records": []
+                    },
+                    "aiService": {
+                        "class": "Service_HTTP",
+                        "enable": true,
+                        "virtualAddresses": [
+                            "192.168.1.100"
+                        ],
+                        "iRules": [
+                            {
+                                "bigip": "/Common/block_malicious_ips"
+                            }
+                        ],
+                        "snat": "auto",
+                        "virtualPort": 80
+                    }
+                }
+            }
+        }
+    }
