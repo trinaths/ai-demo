@@ -7,22 +7,23 @@ spec:
     storage: 5Gi
   volumeMode: Filesystem
   accessModes:
-    - ReadWriteMany  # Allows multiple pods to read/write to this volume
+    - ReadWriteMany  # Allow multiple pods to read/write to this volume
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: manual
-  nfs:
-    path: /mnt/data  # Path to the NFS shared directory
-    server: 10.4.1.112  # Replace with the Jumphost's IP
+  storageClassName: manual  # Match the PVC's storage class
+  hostPath:
+    path: /mnt/data  # The shared directory on the node
+    type: Directory  # Ensure it's a directory
 
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: model-shared-pvc
+  namespace: ai-workloads  # Ensure it’s the same namespace as your deployment
 spec:
   accessModes:
-    - ReadWriteMany  # Allows multiple services to read/write to the volume
+    - ReadWriteMany  # Allow multiple services to read/write to the volume
   resources:
     requests:
       storage: 5Gi  # Request the same size as the PV
-  storageClassName: manual  # Should match the PV's storage class name (e.g., 'manual' or 'efs-sc')
+  storageClassName: manual  # Must match the PV's storage class
