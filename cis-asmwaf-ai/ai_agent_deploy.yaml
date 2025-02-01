@@ -28,8 +28,8 @@ spec:
             readOnly: true # Important: Mount as read-only
       volumes:
       - name: kubeconfig-volume
-          secret:
-            secretName: ai-agent-kubeconfig
+        secret:
+          secretName: ai-agent-kubeconfig
 ---
 
 apiVersion: v1
