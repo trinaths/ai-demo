@@ -1,16 +1,16 @@
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 from imblearn.over_sampling import SMOTE
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score
 from sklearn.utils import shuffle
 
 # Load dataset (replace with the actual path to your CSV)
-csv_filename = "improved_asm_training_data.csv"
+csv_filename = "improved_asm_training_data.csv"  # Update this path to your dataset
 data = pd.read_csv(csv_filename)
 
 # Data Preprocessing
@@ -66,6 +66,8 @@ y_pred = model.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 print(f"Model accuracy: {accuracy:.4f}")
 
-# Save the trained model as a joblib file
+# Save the trained model and scaler as joblib files
 joblib.dump(model, 'ai_model.joblib')
 joblib.dump(scaler, 'scaler.joblib')
+
+print("Model and scaler saved successfully.")

@@ -2,8 +2,7 @@ import os
 import json
 import logging
 import requests
-import threading  # <-- Make sure this is imported
-import tensorflow as tf
+import threading
 import numpy as np
 from flask import Flask, request, jsonify
 from kubernetes import client, config
@@ -30,9 +29,8 @@ except Exception as e:
 # ✅ Kubernetes API Client
 v1 = client.CoreV1Api()
 
-# ✅ AI Model URL (TensorFlow Serving)
-MODEL_URL = "http://ai-inference.ai-workloads.svc.cluster.local:8501/v1/models/anomaly_model_tf:predict"
-logging.info(f"🧠 AI Model URL set to {MODEL_URL}")
+# ✅ AI Model URL (Flask API)
+MODEL_URL = "http://ai-model-container:5000/predict"  # Update with your API endpoint
 
 # ✅ Kubernetes ConfigMap Details
 CONFIGMAP_NAME = "ai-traffic-control"
@@ -77,7 +75,6 @@ def update_as3_configmap(malicious_ips):
         logging.error(f"❌ Failed to update AS3 ConfigMap: {str(e)}", exc_info=True)
 
 # ✅ Function: Process Traffic Data
-# Function to process traffic data and send it to the AI model
 def process_traffic(data):
     try:
         # Extract relevant features from the traffic data
@@ -91,32 +88,28 @@ def process_traffic(data):
         # Logging the extracted data
         logging.info(f"🚀 Processing traffic data: IP={ip_address}, Method={http_method}, URI={uri}, Status={status_code}, Malicious={malicious}")
 
-        # You can encode categorical features (such as http_method, user_agent, etc.)
-        # For simplicity, we will convert them to numerical values here.
-
-        # Example encoding (you can adjust it as per your needs):
+        # Encode categorical features (like HTTP method and user_agent)
         method_mapping = {"GET": 0, "POST": 1, "PUT": 2, "DELETE": 3}
         method_encoded = method_mapping.get(http_method, -1)  # Default to -1 if method is unknown
-        
-        # You can apply similar encoding for `uri` or other text-based features
-        uri_encoded = len(uri)  # Simple example: Use the length of the URI as a feature
-        
-        # Create the feature vector (list of numerical values)
+
+        uri_encoded = len(uri)  # Use the length of the URI as a feature
+
+        # Create the feature vector
         input_data = np.array([[status_code, method_encoded, uri_encoded, malicious]])
 
         # Send the data to the AI model
         response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=5)
         response.raise_for_status()
-        
+
         # Get the prediction result
         result = response.json()
         prediction = result["predictions"][0][0]  # Assuming single value prediction
-        
+
         logging.info(f"🧠 AI Model Prediction Score: {prediction}")
 
         # Apply threshold for determining if the traffic is malicious
         if prediction > 0.5:
-            logging.warning(f"🚨 Malicious activity detected. Updating AS3 ConfigMap...")
+            logging.warning(f"🚨 Malicious activity detected. Updating ConfigMap...")
             update_as3_configmap([ip_address])  # You can update the ConfigMap with the IP address
         else:
             logging.info(f"✅ Traffic is normal. No action needed.")
@@ -125,6 +118,7 @@ def process_traffic(data):
         logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
     except Exception as e:
         logging.error(f"❌ Failed to process traffic data: {str(e)}", exc_info=True)
+
 # ✅ Flask Route: Receive Traffic Data
 @app.route('/analyze_traffic', methods=['POST'])
 def analyze_traffic():
@@ -135,6 +129,7 @@ def analyze_traffic():
     if not log_data:
         return jsonify({"status": "error", "message": "No data received"}), 400
 
+    # Start processing the traffic data in a separate thread
     request_thread = threading.Thread(target=process_traffic, args=(log_data,))
     request_thread.start()
 

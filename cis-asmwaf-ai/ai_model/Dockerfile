@@ -1,20 +1,21 @@
-# Use official Python image as base
+# Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-# Set the working directory inside the container
+# Set the working directory in the container
 WORKDIR /app
 
-# Copy requirements.txt and install dependencies
-COPY requirements.txt requirements.txt
+# Copy the current directory contents into the container at /app
+COPY . /app
+
+# Copy the trained model and scaler into the container
+COPY ai_model.joblib /app/
+COPY scaler.joblib /app/
+
+# Install any needed dependencies specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the Flask app, model, and scaler file into the container
-COPY app.py /app
-COPY ai_model.joblib /app
-COPY scaler.joblib /app  # If you saved the scaler during training
-
-# Expose port 5000 for the Flask app
+# Expose port 5000 for the Flask API
 EXPOSE 5000
 
-# Start the Flask app when the container runs
+# Command to run the Flask app
 CMD ["python", "app.py"]

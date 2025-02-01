@@ -1,18 +1,17 @@
-# ✅ Use Python 3.9 (Stable for AI Models)
-FROM python:3.9
+# Use an official Python runtime as a parent image
+FROM python:3.9-slim
 
-# ✅ Set Work Directory
+# Set the working directory in the container
 WORKDIR /app
 
-# ✅ Copy Requirements & AI Agent Code
-COPY requirements.txt .
-COPY ai_agent.py .
+# Copy the current directory contents into the container at /app
+COPY . /app
 
-# ✅ Install Dependencies
+# Install any needed dependencies specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ✅ Expose Port
+# Expose port 5000 for the Flask API
 EXPOSE 5000
 
-# ✅ Run AI Agent
+# Command to run the Flask app
 CMD ["python", "ai_agent.py"]
