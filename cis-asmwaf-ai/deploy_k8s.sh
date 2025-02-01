@@ -5,3 +5,4 @@ kubectl create secret generic bigip-login  -n kube-system --from-literal=usernam
 kubectl create secret generic ai-agent-kubeconfig \
   --from-file=kubeconfig=$HOME/.kube/config \
   -n ai-workloads
+kubectl get svc,deploy,po -n ai-workloads

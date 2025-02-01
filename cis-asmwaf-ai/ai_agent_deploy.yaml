@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: ai-agent
-        image: quay.io/trinathsquay/ai-asm-anomaly-agent:latest
+        image: quay.io/trinathsquay/asm-ai-agent:latest
         ports:
         - containerPort: 5000
         env:
@@ -26,8 +26,6 @@ spec:
             mountPath: "/root/.kube"
             subPath: "kubeconfig"
             readOnly: true # Important: Mount as read-only
-      imagePullSecrets:
-        - name: myquay
       volumes:
       - name: kubeconfig-volume
           secret:
