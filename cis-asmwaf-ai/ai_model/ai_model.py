@@ -14,12 +14,12 @@ from sklearn.metrics import accuracy_score
 import lightgbm as lgb
 import xgboost as xgb
 import joblib
-#import tensorflow as tf
+import tensorflow as tf
 import os
 from sklearn.utils import shuffle
-import tensorflow.compat.v1 as tf
 
-tf.disable_v2_behavior()
+# Enable eager execution (in case it's not enabled)
+tf.compat.v1.enable_eager_execution()
 
 #  Enable Eager Execution for TensorFlow
 tf.config.run_functions_eagerly(True)
