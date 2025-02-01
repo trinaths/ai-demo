@@ -4,7 +4,8 @@ metadata:
   name: ai-traffic-control
   namespace: ai-workloads
   labels:
-    f5nr: "true"
+    f5type: virtual-server
+    as3: "true"
 data:
   template: |
     {

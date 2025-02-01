@@ -17,12 +17,24 @@ fake_telemetry_data = {
     "attack_signature": "SQL Injection Attempt"
 }
 
-# Send the telemetry data to the AI agent for processing
-response = requests.post(AI_AGENT_URL, json=fake_telemetry_data)
+# Log the telemetry data to inspect it
+print("Sending telemetry data:")
+print(json.dumps(fake_telemetry_data, indent=4))
 
-if response.status_code == 200:
-    print("AI Agent processed the telemetry successfully!")
-    print(f"Response: {response.json()}")
-else:
-    print(f"Failed to process telemetry. Status Code: {response.status_code}")
-    print(f"Error: {response.text}")
+# Send the telemetry data to the AI agent for processing with proper headers
+headers = {
+    'Content-Type': 'application/json',
+}
+
+try:
+    response = requests.post(AI_AGENT_URL, json=fake_telemetry_data, headers=headers)
+
+    if response.status_code == 200:
+        print("AI Agent processed the telemetry successfully!")
+        print(f"Response: {response.json()}")
+    else:
+        print(f"Failed to process telemetry. Status Code: {response.status_code}")
+        print(f"Error: {response.text}")
+
+except requests.exceptions.RequestException as e:
+    print(f"An error occurred while sending the request: {e}")

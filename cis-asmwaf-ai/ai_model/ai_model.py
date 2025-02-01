@@ -163,7 +163,7 @@ best_model, best_name = max(
 print(f"\n🚀 Deploying Best Model: {best_name}")
 
 #  Export Best Model for TensorFlow Serving
-export_dir = f"models/anomaly_model_tf"
+export_dir = f"models/anomaly_model_tf/1"
 os.makedirs(export_dir, exist_ok=True)
 
 class ModelToTF(tf.Module):
