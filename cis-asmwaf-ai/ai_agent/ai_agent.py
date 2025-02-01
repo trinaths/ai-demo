@@ -2,8 +2,10 @@ import os
 import json
 import logging
 import requests
-from flask import Flask, request, jsonify
+import threading  # <-- Make sure this is imported
+import tensorflow as tf
 import numpy as np
+from flask import Flask, request, jsonify
 from kubernetes import client, config
 
 # ✅ Logging Configuration
@@ -49,7 +51,7 @@ def read_as3_configmap():
         logging.error(f"❌ Failed to read AS3 ConfigMap: {str(e)}", exc_info=True)
         return None
 
-# ✅ Function: Update AS3 ConfigMap with new suspicious IPs
+# ✅ Function: Update AS3 ConfigMap
 def update_as3_configmap(malicious_ips):
     try:
         configmap = v1.read_namespaced_config_map(CONFIGMAP_NAME, NAMESPACE)
@@ -74,49 +76,56 @@ def update_as3_configmap(malicious_ips):
     except Exception as e:
         logging.error(f"❌ Failed to update AS3 ConfigMap: {str(e)}", exc_info=True)
 
-# ✅ Function: Process Normal Traffic Data
+# ✅ Function: Process Traffic Data
+# Function to process traffic data and send it to the AI model
 def process_traffic(data):
     try:
-        source_ip = data.get("ip")
-        uri = data.get("uri")
-        http_method = data.get("http_method")
-        user_agent = data.get("user_agent")
-        status_code = data.get("status_code")
+        # Extract relevant features from the traffic data
+        ip_address = data.get("ip_address", "")
+        http_method = data.get("http_method", "")
+        uri = data.get("uri", "")
+        status_code = data.get("status_code", 200)
+        user_agent = data.get("user_agent", "")
+        malicious = data.get("malicious", False)
+
+        # Logging the extracted data
+        logging.info(f"🚀 Processing traffic data: IP={ip_address}, Method={http_method}, URI={uri}, Status={status_code}, Malicious={malicious}")
+
+        # You can encode categorical features (such as http_method, user_agent, etc.)
+        # For simplicity, we will convert them to numerical values here.
+
+        # Example encoding (you can adjust it as per your needs):
+        method_mapping = {"GET": 0, "POST": 1, "PUT": 2, "DELETE": 3}
+        method_encoded = method_mapping.get(http_method, -1)  # Default to -1 if method is unknown
         
-        logging.info(f"🚀 Received Traffic Data: IP={source_ip}, URI={uri}, HTTP Method={http_method}, Status Code={status_code}")
+        # You can apply similar encoding for `uri` or other text-based features
+        uri_encoded = len(uri)  # Simple example: Use the length of the URI as a feature
+        
+        # Create the feature vector (list of numerical values)
+        input_data = np.array([[status_code, method_encoded, uri_encoded, malicious]])
 
-        # ✅ Prepare AI Model Input
-        # Example input format: Feature extraction should be done here, e.g., numeric features
-        # For now, using a simple dummy feature vector
-        input_data = np.array([[http_method == 'GET', status_code]])  # Example features
-
-        logging.info(f"🧠 Sending input data to model: {input_data.tolist()}")
-
-        # ✅ Send Data to AI Model
-        response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=10)
-        response.raise_for_status()  # Will raise HTTPError for 4xx/5xx status codes
-
-        # Log the model response
+        # Send the data to the AI model
+        response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=5)
+        response.raise_for_status()
+        
+        # Get the prediction result
         result = response.json()
-        logging.info(f"🧠 Model response: {result}")
-
-        prediction = result["predictions"][0][0]  # Extract prediction score
+        prediction = result["predictions"][0][0]  # Assuming single value prediction
+        
         logging.info(f"🧠 AI Model Prediction Score: {prediction}")
 
-        # ✅ Decision Threshold: If AI flags it, log a warning and update ConfigMap
+        # Apply threshold for determining if the traffic is malicious
         if prediction > 0.5:
-            logging.warning(f"🚨 Suspicious traffic detected from {source_ip} with URI {uri}. AI Model flagged this traffic as suspicious.")
-            # Update AS3 ConfigMap with the suspicious IP
-            update_as3_configmap([source_ip])
+            logging.warning(f"🚨 Malicious activity detected. Updating AS3 ConfigMap...")
+            update_as3_configmap([ip_address])  # You can update the ConfigMap with the IP address
         else:
-            logging.info(f"✅ Traffic from {source_ip} with URI {uri} is normal.")
+            logging.info(f"✅ Traffic is normal. No action needed.")
 
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
     except Exception as e:
         logging.error(f"❌ Failed to process traffic data: {str(e)}", exc_info=True)
-
-# ✅ Flask Route: Receive Normal Traffic Data
+# ✅ Flask Route: Receive Traffic Data
 @app.route('/analyze_traffic', methods=['POST'])
 def analyze_traffic():
     log_data = request.get_json()
