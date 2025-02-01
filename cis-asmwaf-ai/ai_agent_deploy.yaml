@@ -20,18 +20,18 @@ spec:
         - containerPort: 5000
         env:
         - name: KUBECONFIG # Environment variable name
-          value: /etc/kubeconfig/config # Path inside the container
+          value: "/root/.kube/kubeconfig" # Path inside the container
         volumeMounts:
-        - name: kubeconfig-volume
-          mountPath: /etc/kubeconfig
-          readOnly: true # Important: Mount as read-only
+          - name: kubeconfig-volume
+            mountPath: "/root/.kube"
+            subPath: "kubeconfig"
+            readOnly: true # Important: Mount as read-only
       imagePullSecrets:
         - name: myquay
       volumes:
       - name: kubeconfig-volume
-        secret:
-          secretName: my-kubeconfig-secret # Name of your Secret
-
+          secret:
+            secretName: ai-agent-kubeconfig
 ---
 
 apiVersion: v1

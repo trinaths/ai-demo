@@ -20,18 +20,18 @@ spec:
         - containerPort: 5000
         env:
         - name: KUBECONFIG # Environment variable name
-          value: /etc/kubeconfig/config # Path inside the container
+          value: "/root/.kube/kubeconfig" # Path inside the container
         volumeMounts:
-        - name: kubeconfig-volume
-          mountPath: /etc/kubeconfig
-          readOnly: true # Important: Mount as read-only
+          - name: kubeconfig-volume
+            mountPath: "/root/.kube"
+            subPath: "kubeconfig"
+            readOnly: true # Important: Mount as read-only
       imagePullSecrets:
         - name: myquay
       volumes:
       - name: kubeconfig-volume
-        secret:
-          secretName: my-kubeconfig-secret # Name of your Secret
-
+          secret:
+            secretName: ai-agent-kubeconfig
 ---
 
 apiVersion: v1
@@ -40,10 +40,11 @@ metadata:
   name: ai-agent
   namespace: ai-workloads
 spec:
+  type: NodePort
   selector:
-    app: ai-agent  # Must match deployment labels
+    app: ai-agent
   ports:
     - protocol: TCP
-      port: 5000
-      targetPort: 5000
-  type: ClusterIP  # Internal Kubernetes service
+      port: 5000        # AI Agent container port
+      targetPort: 5000  # AI Agent application port
+      nodePort: 30001   # Exposed NodePort
