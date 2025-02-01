@@ -1,16 +1,20 @@
-# Use TensorFlow Serving as the base image
-FROM tensorflow/serving:latest
+# Use official Python image as base
+FROM python:3.9-slim
 
-# Copy the trained AI model into the container
-COPY models/anomaly_model_tf /models/anomaly_model_tf
+# Set the working directory inside the container
+WORKDIR /app
 
-# Set environment variables for TensorFlow Serving
-ENV MODEL_NAME=anomaly_model
-ENV MODEL_BASE_PATH=/models/anomaly_model_tf
+# Copy requirements.txt and install dependencies
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# ✅ Correct ENTRYPOINT Syntax for TensorFlow Serving
-ENTRYPOINT ["/usr/bin/tensorflow_model_server", \
-            "--port=8500", \
-            "--rest_api_port=8501", \
-            "--model_name=anomaly_model_tf", \
-            "--model_base_path=/models/anomaly_model_tf"]
+# Copy the Flask app, model, and scaler file into the container
+COPY app.py /app
+COPY ai_model.joblib /app
+COPY scaler.joblib /app  # If you saved the scaler during training
+
+# Expose port 5000 for the Flask app
+EXPOSE 5000
+
+# Start the Flask app when the container runs
+CMD ["python", "app.py"]
