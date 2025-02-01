@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-model-retrain
+  namespace: ai-workloads
+spec:
+  schedule: "0 0 * * *"  # Retrain every day at midnight
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: retrain-job
+              image: quay.io/trinathsquay/waf-ai-model:latest
+              command: ["python", "train_model.py"]
+          restartPolicy: OnFailure

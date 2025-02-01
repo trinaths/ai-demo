@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-traffic-control
+  namespace: ai-workloads
+  labels:
+    f5type: virtual-server
+    as3: "true"
+data:
+  template: |
+   {
+    "class": "AS3",
+    "action": "deploy",
+    "persist": true,
+    "declaration": {
+        "class": "ADC",
+        "schemaVersion": "3.50.0",
+        "id": "AI-WAF-AS3",
+        "label": "AI-Driven WAF Security (Shared)",
+        "remark": "Dynamically updates malicious IPs based on AI analysis.",
+        "Shared": {
+            "class": "Tenant",
+            "WAF_Security": {
+                "class": "Application",
+                "aiAsmService": {
+                    "class": "Service_HTTP",
+                    "virtualAddresses": [
+                        "192.168.1.200"
+                    ],
+                    "virtualPort": 80,
+                    "profileHTTP": {
+                        "bigip": "/Common/http"
+                    },
+                    "policyWAF": {
+                        "bigip": "/Common/ai-advanced-waf-policy"
+                    },
+                    "iRules": [
+                        {
+                            "bigip": "/Common/ai-waf-irule"
+                        }
+                    ]
+                },
+                "malicious_ip_data_group": {
+                    "class": "Data_Group",
+                    "keyDataType": "ip",
+                    "records": []
+                }
+            }
+        }
+    }
+   }

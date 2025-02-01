@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: ai-workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+    spec:
+      serviceAccountName: agent-service-sa
+      containers:
+        - name: ai-agent
+          image: quay.io/trinathsquay/waf-ai-agent:latest
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: shared-volume
+              mountPath: /data  # Mount the shared PVC to /data directory inside the container
+            - name: kubeconfig-secret
+              mountPath: /root/.kube  # Mount the kubeconfig-secret for Kubernetes API access
+              readOnly: true
+      volumes:
+        - name: shared-volume
+          persistentVolumeClaim:
+            claimName: model-shared-pvc  # Use the PVC defined earlier
+        - name: kubeconfig-secret
+          secret:
+            secretName: kubeconfig-secret  # Reference the KubeConfig secret created earlier
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent-service
+  namespace: ai-workloads
+spec:
+  selector:
+    app: ai-agent
+  ports:
+    - protocol: TCP
+      port: 8080  # The port the service will expose inside the cluster
+      targetPort: 8080  # The port the container listens on
+      nodePort: 30080  # The NodePort where the service will be exposed externally
+  type: NodePort  # Exposes the service externally via NodePort

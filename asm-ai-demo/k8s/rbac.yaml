@@ -1,0 +1,32 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  # Define the namespace where the ConfigMap is located
+  namespace: ai-workloads  # Modify this to the appropriate namespace
+  name: agent-service-role  # Role name
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["update"]  # Allow update action on ConfigMaps
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-service-sa  # Name of the service account
+  namespace: ai-workloads  # Modify this to the appropriate namespace
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-service-rolebinding  # RoleBinding name
+  namespace: ai-workloads  # Modify this to the appropriate namespace
+subjects:
+  - kind: ServiceAccount
+    name: agent-service-sa  # ServiceAccount for the Agent Service
+    namespace: ai-workloads  # Modify this to the appropriate namespace
+roleRef:
+  kind: Role
+  name: agent-service-role  # Role name that grants the permissions
+  apiGroup: rbac.authorization.k8s.io
