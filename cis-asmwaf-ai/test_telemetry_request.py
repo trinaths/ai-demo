@@ -2,7 +2,7 @@ import requests
 import json
 
 # Define the AI agent API endpoint
-AI_AGENT_URL = "http://10.4.1.115:5000/analyze_traffic"
+AI_AGENT_URL = "http://10.4.1.115:30001/analyze_traffic"
 
 # Fake telemetry data similar to what BigIP would send
 fake_telemetry_data = {
