@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: ai-agent
-        image: quay.io/trinathsquay/ai-anomaly-agent:latest
+        image: quay.io/trinathsquay/ai-asm-anomaly-agent:latest
         ports:
         - containerPort: 5000
         env:
@@ -41,14 +41,10 @@ metadata:
   namespace: ai-workloads
 spec:
   type: NodePort
-  ports:
-    - port: 514
-      targetPort: 514
-      protocol: UDP
-      nodePort: 30514  # Manually defined NodePort
-    - port: 5000
-      targetPort: 5000
-      protocol: TCP
-      nodePort: 30500
   selector:
     app: ai-agent
+  ports:
+    - protocol: TCP
+      port: 5000        # AI Agent container port
+      targetPort: 5000  # AI Agent application port
+      nodePort: 30001   # Exposed NodePort

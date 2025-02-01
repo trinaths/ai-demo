@@ -1,0 +1,49 @@
+{
+  "class": "AS3",
+  "action": "deploy",
+  "persist": true,
+  "declaration": {
+    "class": "ADC",
+    "schemaVersion": "3.50.0",
+    "id": "AI-WAF-Telemetry",
+    "label": "AI-Driven WAF Telemetry",
+    "remark": "BIG-IP sends ASM logs to AI Agent for real-time analysis",
+    "Shared": {
+      "class": "Tenant",
+      "Telemetry": {
+        "class": "Application",
+        "MyTelemetrySystem": {
+          "class": "Telemetry_System",
+          "systemPoller": {
+            "interval": 60
+          }
+        },
+        "TelemetryConnector": {
+          "class": "Telemetry_Consumer",
+          "type": "Generic_HTTP",
+          "host": "<k8s-node-ip>",  
+          "protocol": "http",
+          "port": 30001,
+          "path": "/analyze_traffic",
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "method": "POST"
+        },
+        "TelemetryWAF": {
+          "class": "Telemetry_Logger",
+          "filter": {
+            "logLevel": "debug",
+            "include": {
+              "requestType": ["WAF"]
+            }
+          },
+          "destination": "TelemetryConnector"
+        }
+      }
+    }
+  }
+}

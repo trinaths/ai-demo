@@ -1,14 +1,18 @@
-# Use Python 3.8 as the base image
-FROM python:3.8
+# ✅ Use Python 3.9 (Stable for AI Models)
+FROM python:3.9
 
-# Set the working directory
+# ✅ Set Work Directory
 WORKDIR /app
 
-# Copy AI Agent script
-COPY ai_agent.py /app/
+# ✅ Copy Requirements & AI Agent Code
+COPY requirements.txt .
+COPY ai_agent.py .
 
-# Install dependencies
-RUN pip install flask requests kubernetes
+# ✅ Install Dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Run AI Agent
-CMD ["python3", "/app/ai_agent.py"]
+# ✅ Expose Port
+EXPOSE 5000
+
+# ✅ Run AI Agent
+CMD ["python", "ai_agent.py"]

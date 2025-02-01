@@ -15,13 +15,17 @@ logging.basicConfig(
 
 logging.info("CIS demo AI Agent for CIS is starting...")
 
-# Load Kubernetes Config
+# Load Kubernetes Config (Supports Secret-based Kubeconfig)
 try:
-    if "KUBERNETES_SERVICE_HOST" in os.environ:
-        config.load_incluster_config()  # Running inside Kubernetes
+    kubeconfig_path = "/root/.kube/kubeconfig"
+    if os.path.exists(kubeconfig_path):
+        config.load_kube_config(config_file=kubeconfig_path)  # ✅ Load from Secret
+        logging.info("Using Secret-based Kubernetes configuration")
+    elif "KUBERNETES_SERVICE_HOST" in os.environ:
+        config.load_incluster_config()
         logging.info("Using in-cluster Kubernetes configuration")
     else:
-        config.load_kube_config()  # Running locally
+        config.load_kube_config()  # Fallback to local
         logging.info("Using local kubeconfig")
 except Exception as e:
     logging.critical(f"Kubernetes configuration error: {str(e)}", exc_info=True)

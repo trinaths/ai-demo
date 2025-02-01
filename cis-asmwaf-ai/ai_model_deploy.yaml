@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: ai-inference
-        image: quay.io/trinathsquay/ai-anomaly-model:latest
+        image: quay.io/trinathsquay/asm-anomaly-model:latest
         ports:
         - containerPort: 8501
       imagePullSecrets:
