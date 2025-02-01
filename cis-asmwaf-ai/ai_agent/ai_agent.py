@@ -2,10 +2,8 @@ import os
 import json
 import logging
 import requests
-import threading
-import tensorflow as tf
-import numpy as np
 from flask import Flask, request, jsonify
+import numpy as np
 from kubernetes import client, config
 
 # ✅ Logging Configuration
@@ -51,7 +49,7 @@ def read_as3_configmap():
         logging.error(f"❌ Failed to read AS3 ConfigMap: {str(e)}", exc_info=True)
         return None
 
-# ✅ Function: Update AS3 ConfigMap
+# ✅ Function: Update AS3 ConfigMap with new suspicious IPs
 def update_as3_configmap(malicious_ips):
     try:
         configmap = v1.read_namespaced_config_map(CONFIGMAP_NAME, NAMESPACE)
@@ -76,58 +74,59 @@ def update_as3_configmap(malicious_ips):
     except Exception as e:
         logging.error(f"❌ Failed to update AS3 ConfigMap: {str(e)}", exc_info=True)
 
-# ✅ Function: Process WAF Telemetry Data
-def process_telemetry(data):
+# ✅ Function: Process Normal Traffic Data
+def process_traffic(data):
     try:
         source_ip = data.get("ip")
-        attack_type = data.get("attack_type")
+        uri = data.get("uri")
+        http_method = data.get("http_method")
+        user_agent = data.get("user_agent")
+        status_code = data.get("status_code")
         
-        logging.info(f"🚀 Received WAF Log: IP={source_ip}, Attack={attack_type}")
+        logging.info(f"🚀 Received Traffic Data: IP={source_ip}, URI={uri}, HTTP Method={http_method}, Status Code={status_code}")
 
-        # ✅ Prepare AI Model Input - Expecting numerical features for the model
-        input_data = np.array([[1]])  # Replace this with actual feature extraction from WAF data
+        # ✅ Prepare AI Model Input
+        # Example input format: Feature extraction should be done here, e.g., numeric features
+        # For now, using a simple dummy feature vector
+        input_data = np.array([[http_method == 'GET', status_code]])  # Example features
 
-        # Log the input data being sent to TensorFlow Serving
-        logging.info(f"🧠 Preparing input data for model: {input_data.tolist()}")
+        logging.info(f"🧠 Sending input data to model: {input_data.tolist()}")
 
-        # ✅ Send Data to AI Model (TensorFlow Serving)
-        try:
-            response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=10)
-            response.raise_for_status()  # Will raise HTTPError for 4xx/5xx status codes
+        # ✅ Send Data to AI Model
+        response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=10)
+        response.raise_for_status()  # Will raise HTTPError for 4xx/5xx status codes
 
-            # Log the model response
-            logging.info(f"🧠 Model response: {response.json()}")
+        # Log the model response
+        result = response.json()
+        logging.info(f"🧠 Model response: {result}")
 
-            result = response.json()
-            prediction = result["predictions"][0][0]  # Extract prediction score
-            logging.info(f"🧠 AI Model Prediction Score: {prediction}")
+        prediction = result["predictions"][0][0]  # Extract prediction score
+        logging.info(f"🧠 AI Model Prediction Score: {prediction}")
 
-            # ✅ Decision Threshold: If AI flags it, block the IP
-            if prediction > 0.5:
-                logging.warning(f"🚨 Malicious activity detected from {source_ip}. Updating AS3 ConfigMap...")
-                update_as3_configmap([source_ip])
-            else:
-                logging.info(f"✅ Traffic from {source_ip} is normal. No action needed.")
+        # ✅ Decision Threshold: If AI flags it, log a warning and update ConfigMap
+        if prediction > 0.5:
+            logging.warning(f"🚨 Suspicious traffic detected from {source_ip} with URI {uri}. AI Model flagged this traffic as suspicious.")
+            # Update AS3 ConfigMap with the suspicious IP
+            update_as3_configmap([source_ip])
+        else:
+            logging.info(f"✅ Traffic from {source_ip} with URI {uri} is normal.")
 
-        except requests.exceptions.HTTPError as e:
-            logging.error(f"❌ HTTPError: {e.response.status_code} - {e.response.text}")
-        except requests.exceptions.RequestException as e:
-            logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
-
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
     except Exception as e:
-        logging.error(f"❌ Failed to process telemetry data: {str(e)}", exc_info=True)
+        logging.error(f"❌ Failed to process traffic data: {str(e)}", exc_info=True)
 
-# ✅ Flask Route: Receive BIG-IP WAF Telemetry
+# ✅ Flask Route: Receive Normal Traffic Data
 @app.route('/analyze_traffic', methods=['POST'])
 def analyze_traffic():
     log_data = request.get_json()
 
-    logging.info(f"🔔 Received Telemetry Data: {log_data}")
+    logging.info(f"🔔 Received Traffic Data: {log_data}")
 
     if not log_data:
         return jsonify({"status": "error", "message": "No data received"}), 400
 
-    request_thread = threading.Thread(target=process_telemetry, args=(log_data,))
+    request_thread = threading.Thread(target=process_traffic, args=(log_data,))
     request_thread.start()
 
     return jsonify({"status": "processing", "message": "AI analysis started"}), 202

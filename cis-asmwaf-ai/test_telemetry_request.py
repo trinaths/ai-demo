@@ -4,37 +4,25 @@ import json
 # Define the AI agent API endpoint
 AI_AGENT_URL = "http://10.4.1.115:30001/analyze_traffic"
 
-# Fake telemetry data similar to what BigIP would send
-fake_telemetry_data = {
-    "event_type": "WAF_TRIGGERED",
+# Example normal traffic data
+normal_traffic_data = {
+    "event_type": "TRAFFIC",
     "timestamp": "2025-02-01T10:00:00Z",
-    "ip_address": "192.168.1.10",
+    "ip_address": "192.168.1.20",
     "http_method": "GET",
-    "uri": "/example/resource?id=123",
+    "uri": "/home",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "status_code": 403,
-    "malicious": True,
-    "attack_signature": "SQL Injection Attempt"
+    "status_code": 200,
+    "malicious": False,
+    "attack_signature": "None"
 }
 
-# Log the telemetry data to inspect it
-print("Sending telemetry data:")
-print(json.dumps(fake_telemetry_data, indent=4))
+# Send the telemetry data to the AI agent for processing
+response = requests.post(AI_AGENT_URL, json=normal_traffic_data)
 
-# Send the telemetry data to the AI agent for processing with proper headers
-headers = {
-    'Content-Type': 'application/json',
-}
-
-try:
-    response = requests.post(AI_AGENT_URL, json=fake_telemetry_data, headers=headers)
-
-    if response.status_code == 200:
-        print("AI Agent processed the telemetry successfully!")
-        print(f"Response: {response.json()}")
-    else:
-        print(f"Failed to process telemetry. Status Code: {response.status_code}")
-        print(f"Error: {response.text}")
-
-except requests.exceptions.RequestException as e:
-    print(f"An error occurred while sending the request: {e}")
+if response.status_code == 202:
+    print("AI Agent received and is processing the traffic data.")
+    print(f"Response: {response.json()}")
+else:
+    print(f"Failed to send data. Status Code: {response.status_code}")
+    print(f"Error: {response.text}")
