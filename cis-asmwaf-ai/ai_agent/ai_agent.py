@@ -84,26 +84,36 @@ def process_telemetry(data):
         
         logging.info(f"🚀 Received WAF Log: IP={source_ip}, Attack={attack_type}")
 
-        # ✅ Prepare AI Model Input
-        input_data = np.array([[1]])  # Dummy data (Replace with actual WAF features)
+        # ✅ Prepare AI Model Input - Expecting numerical features for the model
+        input_data = np.array([[1]])  # Replace this with actual feature extraction from WAF data
 
-        # ✅ Send Data to AI Model
-        response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=5)
-        response.raise_for_status()
-        result = response.json()
+        # Log the input data being sent to TensorFlow Serving
+        logging.info(f"🧠 Preparing input data for model: {input_data.tolist()}")
 
-        prediction = result["predictions"][0][0]  # Extract prediction score
-        logging.info(f"🧠 AI Model Prediction Score: {prediction}")
+        # ✅ Send Data to AI Model (TensorFlow Serving)
+        try:
+            response = requests.post(MODEL_URL, json={"instances": input_data.tolist()}, timeout=10)
+            response.raise_for_status()  # Will raise HTTPError for 4xx/5xx status codes
 
-        # ✅ Decision Threshold: If AI flags it, block the IP
-        if prediction > 0.5:
-            logging.warning(f"🚨 Malicious activity detected from {source_ip}. Updating AS3 ConfigMap...")
-            update_as3_configmap([source_ip])
-        else:
-            logging.info(f"✅ Traffic from {source_ip} is normal. No action needed.")
+            # Log the model response
+            logging.info(f"🧠 Model response: {response.json()}")
 
-    except requests.exceptions.RequestException as e:
-        logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
+            result = response.json()
+            prediction = result["predictions"][0][0]  # Extract prediction score
+            logging.info(f"🧠 AI Model Prediction Score: {prediction}")
+
+            # ✅ Decision Threshold: If AI flags it, block the IP
+            if prediction > 0.5:
+                logging.warning(f"🚨 Malicious activity detected from {source_ip}. Updating AS3 ConfigMap...")
+                update_as3_configmap([source_ip])
+            else:
+                logging.info(f"✅ Traffic from {source_ip} is normal. No action needed.")
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"❌ HTTPError: {e.response.status_code} - {e.response.text}")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"❌ AI Model request failed: {str(e)}", exc_info=True)
+
     except Exception as e:
         logging.error(f"❌ Failed to process telemetry data: {str(e)}", exc_info=True)
 
