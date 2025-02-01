@@ -1,9 +1,0 @@
-when CLIENT_ACCEPTED {
-    set src_ip [IP::client_addr]
-    set malicious_ip_list [class lookup $src_ip malicious_ip_data_group]
- 
-    if {$malicious_ip_list ne ""} {
-        log local0. "Blocking malicious IP: $src_ip"
-        reject
-    }
-}
