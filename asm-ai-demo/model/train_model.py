@@ -45,7 +45,12 @@ df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Go
 
 # **🚨 Drop Features with High Correlation Dynamically**
 correlation_threshold = 0.90
-correlation_matrix = df.corr()
+# 🚀 Exclude non-numeric columns before correlation
+numeric_features = df.select_dtypes(include=["number"])  # Only numeric columns
+correlation_matrix = numeric_features.corr()
+
+# 🔍 Log feature correlation with 'prediction'
+logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation_matrix["prediction"].abs().sort_values(ascending=False))
 high_corr_features = correlation_matrix["prediction"].abs().sort_values(ascending=False)
 features_to_drop = high_corr_features[high_corr_features > correlation_threshold].index.tolist()
 
