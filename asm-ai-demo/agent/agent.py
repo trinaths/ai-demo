@@ -13,7 +13,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Define paths
@@ -45,7 +45,7 @@ def update_configmap_in_k8s(ip):
         v1 = client.CoreV1Api()
         configmap = v1.read_namespaced_config_map(configmap_name, namespace)
 
-        # Ensure the "template" key exists in ConfigMap
+        # Ensure the "template" key exists
         if "template" not in configmap.data:
             raise KeyError("ConfigMap does not contain 'template' field.")
 
@@ -70,36 +70,33 @@ def update_configmap_in_k8s(ip):
 
             # Apply the updated ConfigMap
             v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
-            print(f"✅ ConfigMap updated: IP {ip} added to 'malicious_ip_data_group'.")
+            logger.info(f"✅ ConfigMap updated: IP {ip} added to 'malicious_ip_data_group'.")
         else:
-            print(f"ℹ️ IP {ip} already exists in the 'malicious_ip_data_group'.")
+            logger.info(f"ℹ️ IP {ip} already exists in the 'malicious_ip_data_group'.")
 
     except KeyError as e:
-        print(f"❌ KeyError: {e}. Ensure AS3 JSON is correctly structured in the ConfigMap.")
+        logger.error(f"❌ KeyError: {e}. Ensure AS3 JSON is correctly structured in the ConfigMap.")
     except json.JSONDecodeError:
-        print("❌ JSON Decode Error: ConfigMap does not contain valid JSON.")
+        logger.error("❌ JSON Decode Error: ConfigMap does not contain valid JSON.")
     except client.exceptions.ApiException as e:
-        print(f"❌ Kubernetes API Error: {e.reason} - {e.body}")
+        logger.error(f"❌ Kubernetes API Error: {e.reason} - {e.body}")
 
 # Function to preprocess data
 def preprocess_data(data):
     features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
-
     df_input = pd.DataFrame([data])
 
     # Handle missing values
     for col in ["ip_reputation", "bot_signature", "violation"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
-        # Check for unseen labels and update encoder
+        # Ensure all categories are available before transforming
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
         if unseen_labels:
-            logger.warning(f"Unseen labels in {col}: {unseen_labels}. Adding them to encoder.")
-
-            # Extend the encoder's classes using NumPy
+            logger.warning(f"Unseen labels detected in {col}: {unseen_labels}. Adjusting encoding.")
             encoders[col].classes_ = np.append(encoders[col].classes_, list(unseen_labels))
 
-        # Transform the column using the updated encoder
+        # Transform using LabelEncoder
         df_input[col] = encoders[col].transform(df_input[col])
 
     return df_input[features]
@@ -107,7 +104,7 @@ def preprocess_data(data):
 # Function to store data and trigger retraining
 def store_data_and_retrain(data, prediction):
     timestamp = datetime.now(timezone.utc).isoformat()
-    
+
     # Define the correct column order
     required_columns = [
         "timestamp", "src_ip", "request", "violation", "response_code", 
@@ -117,7 +114,7 @@ def store_data_and_retrain(data, prediction):
 
     # Ensure correct data structure
     row_data = {
-        "timestamp": data.get("timestamp", timestamp),
+        "timestamp": timestamp,
         "src_ip": data.get("src_ip", "Unknown"),
         "request": data.get("request", "Unknown"),
         "violation": data.get("violation", "None"),
@@ -162,16 +159,16 @@ def retrain_model():
         X = df[["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
         y = df["prediction"]
 
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced")
         model.fit(X, y)
 
         joblib.dump(model, MODEL_PATH)
         joblib.dump(label_encoders, ENCODERS_PATH)
 
-        logger.info("Model retrained successfully.")
+        logger.info("✅ Model retrained successfully.")
 
     except Exception as e:
-        logger.error(f"Error during model retraining: {e}")
+        logger.error(f"❌ Error during model retraining: {e}")
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
