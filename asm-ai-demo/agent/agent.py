@@ -11,7 +11,7 @@ import numpy as np
 from datetime import datetime, timezone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
 # **🛠 Set up Logging**
@@ -74,11 +74,11 @@ def update_configmap_in_k8s(ip):
 
 # **🔍 Preprocess data before prediction**
 def preprocess_data(data):
-    features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "severity", "violation"]
+    features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
     df_input = pd.DataFrame([data])
 
     # **Handle unseen categories**
-    for col in ["ip_reputation", "bot_signature"]:
+    for col in ["ip_reputation", "bot_signature", "violation"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
@@ -121,16 +121,13 @@ def retrain_model():
             df[col] = le.fit_transform(df[col].astype(str))
             label_encoders[col] = le
 
-        X = df[["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
+        X = df[["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
         y = df["prediction"]
 
         # **Split data for training/testing**
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        # **Retrain model with cross-validation**
-        cross_val_scores = cross_val_score(model, X_train, y_train, cv=5, scoring="accuracy")
-        logger.info(f"📊 Cross-validation accuracy: {cross_val_scores.mean():.4f}")
-
+        # **Retrain model**
         model.fit(X_train, y_train)
 
         # **Evaluate model performance**
@@ -146,25 +143,21 @@ def retrain_model():
         logger.error(f"❌ Error during model retraining: {e}")
 
 # **🛡️ Adjust malicious classification threshold**
-MALICIOUS_THRESHOLD = 0.9
+MALICIOUS_THRESHOLD = 0.75
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.json
     df_input = preprocess_data(data)
+    prediction = model.predict(df_input)[0]
 
-    # **Use probability-based prediction**
-    probability = model.predict_proba(df_input)[0][1]  # Probability of being malicious
+    store_data_and_retrain(data, prediction)
 
-    logger.info(f"🔍 Predicted probability of malicious: {probability:.4f}")
-
-    # **Only block if probability is above 90%**
-    if probability >= MALICIOUS_THRESHOLD:
-        logger.info(f"🚨 High-confidence blacklist: {data['src_ip']} ({probability:.4f})")
+    if prediction >= MALICIOUS_THRESHOLD:
         update_configmap_in_k8s(data["src_ip"])
-        return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"], "confidence": probability})
+        return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"]})
 
-    return jsonify({"status": "normal", "message": "Traffic is not malicious", "confidence": probability})
+    return jsonify({"status": "normal", "message": "Traffic is not malicious"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
