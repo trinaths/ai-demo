@@ -31,7 +31,7 @@ try:
     df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')  # Skip malformed lines
 
     # Validate required columns exist
-    required_columns = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "label"]
+    required_columns = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "prediction"]
     missing_columns = [col for col in required_columns if col not in df.columns]
 
     if missing_columns:
@@ -42,7 +42,7 @@ except Exception as e:
     exit(1)
 
 # Handle missing values
-df = df.dropna(subset=["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "label"])
+df = df.dropna(subset=["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "prediction"])
 
 # Encode categorical variables
 label_encoders = {}
@@ -57,7 +57,7 @@ for col in ["ip_reputation", "bot_signature", "violation"]:
 
 # Define features and target
 features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
-target = "label"  # The target label indicates malicious (1) or normal (0) traffic
+target = "prediction"  # The target label indicates malicious (1) or normal (0) traffic
 
 # Prepare data
 X = df[features]

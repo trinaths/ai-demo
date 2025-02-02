@@ -45,13 +45,13 @@ def update_configmap_in_k8s(ip):
         configmap = v1.read_namespaced_config_map(configmap_name, namespace)
 
         if "declaration" in configmap.data:
-            records = configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"]
+            records = configmap.data["template"]["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"]
         else:
             records = []
 
         if ip not in [r["name"] for r in records]:
             records.append({"name": ip, "value": "AI-Blacklisted"})
-            configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
+            configmap.data["template"]["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
             v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
             logger.info(f"ConfigMap updated: IP {ip} added to blacklist.")
         else:
@@ -91,7 +91,7 @@ def store_data_and_retrain(data, prediction):
     required_columns = [
         "timestamp", "src_ip", "request", "violation", "response_code", 
         "bytes_sent", "bytes_received", "request_rate", "bot_signature", 
-        "severity", "user_agent", "ip_reputation", "label", "prediction"
+        "severity", "user_agent", "ip_reputation", "prediction"
     ]
 
     # Ensure correct data structure
@@ -108,7 +108,6 @@ def store_data_and_retrain(data, prediction):
         "severity": data.get("severity", "Unknown"),
         "user_agent": data.get("user_agent", "Unknown"),
         "ip_reputation": data.get("ip_reputation", "Unknown"),
-        "label": data.get("label", 0),
         "prediction": prediction
     }
 
