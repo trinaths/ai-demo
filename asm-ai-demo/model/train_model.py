@@ -2,7 +2,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
+from sklearn.metrics import classification_report
 import joblib
 import os
 import logging
@@ -40,6 +40,16 @@ except Exception as e:
 # **🧹 Handle missing values**
 df = df.dropna(subset=required_columns)
 
+# **📉 Fix Class Imbalance**
+normal_count = len(df[df["prediction"] == 0])
+malicious_count = len(df[df["prediction"] == 1])
+
+if normal_count < malicious_count:
+    df_malicious = df[df["prediction"] == 1].sample(normal_count, random_state=42)
+    df_normal = df[df["prediction"] == 0]
+    df = pd.concat([df_malicious, df_normal])
+    logger.info(f"📊 Balanced dataset: {len(df[df['prediction']==0])} normal vs {len(df[df['prediction']==1])} malicious.")
+
 # **🔹 Encode categorical variables**
 label_encoders = {}
 for col in ["ip_reputation", "bot_signature", "violation"]:
@@ -47,7 +57,7 @@ for col in ["ip_reputation", "bot_signature", "violation"]:
     df[col] = le.fit_transform(df[col].astype(str))
     label_encoders[col] = le
 
-# **🛠 Feature selection using feature importance**
+# **🛠 Feature selection**
 features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
 target = "prediction"
 
@@ -55,36 +65,24 @@ X = df[features]
 y = df[target]
 
 # **🧪 Split dataset into training & testing sets**
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# **🎯 Train model with optimized hyperparameters**
+# **🎯 Train model with regularization**
 logger.info("🚀 Training optimized model...")
 model = RandomForestClassifier(
-    n_estimators=200,  # Increased trees for better performance
-    max_depth=10,  # Prevents overfitting
-    min_samples_split=5,  # Ensures better decision making
-    min_samples_leaf=3,  # Reduces variance
+    n_estimators=100,  
+    max_depth=8,  # **Reduce depth to prevent overfitting**
+    min_samples_split=10,  # **Higher value ensures generalization**
+    min_samples_leaf=5,  # **Avoids learning noise**
+    class_weight="balanced",  # **Compensates for any remaining class imbalance**
     random_state=42
 )
 model.fit(X_train, y_train)
 
 # **📊 Evaluate model**
 y_pred = model.predict(X_test)
-precision = precision_score(y_test, y_pred)
-recall = recall_score(y_test, y_pred)
-f1 = f1_score(y_test, y_pred)
-
 logger.info("📊 Model Evaluation Metrics:")
-logger.info(f"   🎯 Precision: {precision:.4f}")
-logger.info(f"   🎯 Recall: {recall:.4f}")
-logger.info(f"   🎯 F1 Score: {f1:.4f}")
-
-# **📉 Feature importance analysis**
-feature_importance = pd.DataFrame({"Feature": features, "Importance": model.feature_importances_})
-feature_importance = feature_importance.sort_values(by="Importance", ascending=False)
-
-logger.info("📊 Feature Importance Ranking:")
-logger.info("\n" + feature_importance.to_string(index=False))
+logger.info(classification_report(y_test, y_pred))
 
 # **💾 Save trained model & encoders**
 try:

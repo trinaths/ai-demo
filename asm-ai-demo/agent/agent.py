@@ -149,15 +149,19 @@ MALICIOUS_THRESHOLD = 0.75
 def analyze():
     data = request.json
     df_input = preprocess_data(data)
-    prediction = model.predict(df_input)[0]
 
-    store_data_and_retrain(data, prediction)
+    # **Use probability instead of direct classification**
+    probability = model.predict_proba(df_input)[0][1]  # Probability of malicious
 
-    if prediction >= MALICIOUS_THRESHOLD:
+    logger.info(f"🔍 Predicted malicious probability: {probability:.4f}")
+
+    # **Only block if probability is very high**
+    if probability >= 0.9:
+        logger.info(f"🚨 High-confidence blacklist: {data['src_ip']} ({probability:.4f})")
         update_configmap_in_k8s(data["src_ip"])
         return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"]})
 
-    return jsonify({"status": "normal", "message": "Traffic is not malicious"})
+    return jsonify({"status": "normal", "message": "Traffic is not malicious", "confidence": probability})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
