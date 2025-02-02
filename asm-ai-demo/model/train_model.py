@@ -28,7 +28,7 @@ os.makedirs("/data", exist_ok=True)
 print("Loading initial dataset for training...")
 
 try:
-    df = pd.read_csv(DATA_STORAGE_PATH, error_bad_lines=False)  # Skip malformed lines
+    df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')  # Skip malformed lines
 
     # Validate required columns exist
     required_columns = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "label"]
