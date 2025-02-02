@@ -1,5 +1,6 @@
 import requests
 import joblib
+import json
 import pandas as pd
 from flask import Flask, request, jsonify
 import yaml
@@ -44,21 +45,41 @@ def update_configmap_in_k8s(ip):
         v1 = client.CoreV1Api()
         configmap = v1.read_namespaced_config_map(configmap_name, namespace)
 
-        if "declaration" in configmap.data:
-            records = configmap.data["template"]["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"]
-        else:
-            records = []
+        # Ensure the "template" key exists in ConfigMap
+        if "template" not in configmap.data:
+            raise KeyError("ConfigMap does not contain 'template' field.")
 
-        if ip not in [r["name"] for r in records]:
+        # Load AS3 JSON from the "template" key
+        as3_declaration = json.loads(configmap.data["template"])  # Deserialize JSON
+
+        # Validate AS3 structure
+        waf_security = as3_declaration.get("declaration", {}).get("Shared", {}).get("WAF_Security", {})
+        if "malicious_ip_data_group" not in waf_security:
+            raise KeyError("Missing 'malicious_ip_data_group' in AS3 declaration.")
+
+        # Get the existing records
+        records = waf_security["malicious_ip_data_group"].get("records", [])
+
+        # Check if the IP is already present
+        if not any(entry["name"] == ip for entry in records):
             records.append({"name": ip, "value": "AI-Blacklisted"})
-            configmap.data["template"]["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
-            v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
-            logger.info(f"ConfigMap updated: IP {ip} added to blacklist.")
-        else:
-            logger.info(f"IP {ip} already exists in ConfigMap blacklist.")
+            waf_security["malicious_ip_data_group"]["records"] = records
 
+            # Convert back to JSON and update ConfigMap
+            configmap.data["template"] = json.dumps(as3_declaration, indent=4)
+
+            # Apply the updated ConfigMap
+            v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
+            print(f"✅ ConfigMap updated: IP {ip} added to 'malicious_ip_data_group'.")
+        else:
+            print(f"ℹ️ IP {ip} already exists in the 'malicious_ip_data_group'.")
+
+    except KeyError as e:
+        print(f"❌ KeyError: {e}. Ensure AS3 JSON is correctly structured in the ConfigMap.")
+    except json.JSONDecodeError:
+        print("❌ JSON Decode Error: ConfigMap does not contain valid JSON.")
     except client.exceptions.ApiException as e:
-        logger.error(f"Error updating ConfigMap: {e.reason} - {e.body}")
+        print(f"❌ Kubernetes API Error: {e.reason} - {e.body}")
 
 # Function to preprocess data
 def preprocess_data(data):
