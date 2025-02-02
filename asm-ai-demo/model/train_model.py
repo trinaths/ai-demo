@@ -2,12 +2,12 @@ import pandas as pd
 import joblib
 import os
 import logging
-import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, GridSearchCV
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils import shuffle
 from sklearn.metrics import classification_report, roc_auc_score
+import xgboost as xgb
 
 # **🛠 Set up logging**
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 # **📂 Paths**
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
-MODEL_PATH = "/data/model.pkl"
+MODEL_RF_PATH = "/data/model_rf.pkl"
+MODEL_XGB_PATH = "/data/model_xgb.pkl"
 ENCODERS_PATH = "/data/encoders.pkl"
 
 # **📂 Ensure directories exist**
@@ -43,26 +44,18 @@ if normal_count == 0 or malicious_count == 0:
 # **🧹 Handle missing values**
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
-# **🚨 Drop Features with High Correlation Dynamically**
-correlation_threshold = 0.90
-# 🚀 Exclude non-numeric columns before correlation
-numeric_features = df.select_dtypes(include=["number"])  # Only numeric columns
+# **🚀 Exclude non-numeric columns for correlation**
+numeric_features = df.select_dtypes(include=["number"])  
 correlation_matrix = numeric_features.corr()
 
-# 🔍 Log feature correlation with 'prediction'
-logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation_matrix["prediction"].abs().sort_values(ascending=False))
-high_corr_features = correlation_matrix["prediction"].abs().sort_values(ascending=False)
-features_to_drop = high_corr_features[high_corr_features > correlation_threshold].index.tolist()
+# **📊 Drop Highly Correlated Features**
+highly_correlated_features = ["response_code"]
+logger.info(f"🛑 Dropping highly correlated features: {highly_correlated_features}")
+df.drop(columns=highly_correlated_features, inplace=True, errors="ignore")
 
-if "prediction" in features_to_drop:
-    features_to_drop.remove("prediction")
-
-df.drop(columns=features_to_drop, inplace=True, errors="ignore")
-logger.info(f"🛑 Dropping highly correlated features: {features_to_drop}")
-
-# **🚀 Feature Engineering**
-df["request_size_ratio"] = df["bytes_sent"] / (df["bytes_received"] + 1)  # Avoid division by zero
-df["request_rate_norm"] = np.log(df["request_rate"] + 1)  # Normalize request rate
+# **🔹 Feature Selection**
+features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature"]
+target = "prediction"
 
 # **🔹 Encode categorical variables**
 label_encoders = {}
@@ -71,77 +64,58 @@ for col in ["ip_reputation", "bot_signature"]:
     df[col] = le.fit_transform(df[col].astype(str))
     label_encoders[col] = le
 
-# **🚀 Standardize Features**
-scaler = StandardScaler()
-features = ["bytes_sent", "bytes_received", "request_rate_norm", "request_size_ratio", "ip_reputation", "bot_signature"]
-df[features] = scaler.fit_transform(df[features])
+# **🚀 Shuffle dataset**
+df = shuffle(df, random_state=42)
 
-# **🔄 Balance dataset dynamically if imbalance exists**
-min_samples = min(normal_count, malicious_count)
-df_normal_balanced = df[df["prediction"] == 0].sample(min_samples, random_state=42)
-df_malicious_balanced = df[df["prediction"] == 1].sample(min_samples, random_state=42)
+# **🎯 Train-Test Split**
+X = df[features]
+y = df[target]
 
-# **Merge balanced dataset**
-df_balanced = pd.concat([df_normal_balanced, df_malicious_balanced])
+# **💡 Create a validation set before final testing**
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# **🎯 Train-test split**
-X_train, X_test, y_train, y_test = train_test_split(
-    df_balanced[features], df_balanced["prediction"], test_size=0.3, stratify=df_balanced["prediction"], random_state=42
-)
-
-# **🎛 Hyperparameter Search for XGBoost**
-xgb_model = XGBClassifier(
-    n_estimators=200,
-    max_depth=5,
-    learning_rate=0.05,
-    eval_metric="logloss",
-    use_label_encoder=False
-)
-
-grid_search = GridSearchCV(
-    xgb_model,
-    param_grid={
-        "max_depth": [3, 5, 7],
-        "learning_rate": [0.01, 0.05, 0.1],
-        "n_estimators": [100, 200, 300]
-    },
-    cv=3,
-    scoring="roc_auc",
-    n_jobs=-1
-)
-
-grid_search.fit(X_train, y_train)
-best_xgb = grid_search.best_estimator_
-logger.info(f"✅ Best XGBoost Parameters: {grid_search.best_params_}")
-
-# **🚀 Train Optimized Model**
+# **🚀 Train Optimized RandomForest Model**
 logger.info("🚀 Training optimized RandomForest model...")
 rf_model = RandomForestClassifier(
-    n_estimators=100,
-    max_depth=5,
-    min_samples_split=5,
-    min_samples_leaf=2,
-    class_weight="balanced",
+    n_estimators=150,  
+    max_depth=7,  # **Lower depth prevents overfitting**
+    min_samples_split=10,  
+    min_samples_leaf=5,  
+    max_features="sqrt",  # **Random feature selection for better generalization**
+    class_weight="balanced",  
     random_state=42
 )
 rf_model.fit(X_train, y_train)
 
-# **📊 Evaluate model**
-y_pred_rf = rf_model.predict(X_test)
-y_pred_xgb = best_xgb.predict(X_test)
+# **🚀 Train Optimized XGBoost Model**
+logger.info("🚀 Training optimized XGBoost model...")
+xgb_model = xgb.XGBClassifier(
+    learning_rate=0.01,
+    max_depth=3,
+    n_estimators=100,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    eval_metric="logloss",
+    random_state=42
+)
+xgb_model.fit(X_train, y_train)
+
+# **📊 Evaluate Models**
+y_pred_rf = rf_model.predict(X_valid)
+y_pred_xgb = xgb_model.predict(X_valid)
 
 logger.info("📊 Model Evaluation (RandomForest):")
-logger.info("\n%s", classification_report(y_test, y_pred_rf))
-logger.info("📊 ROC-AUC Score (RandomForest): %.4f" % roc_auc_score(y_test, rf_model.predict_proba(X_test)[:, 1]))
+logger.info("\n%s", classification_report(y_valid, y_pred_rf))
+logger.info(f"📊 ROC-AUC Score (RandomForest): {roc_auc_score(y_valid, y_pred_rf):.4f}")
 
 logger.info("📊 Model Evaluation (XGBoost):")
-logger.info("\n%s", classification_report(y_test, y_pred_xgb))
-logger.info("📊 ROC-AUC Score (XGBoost): %.4f" % roc_auc_score(y_test, best_xgb.predict_proba(X_test)[:, 1]))
+logger.info("\n%s", classification_report(y_valid, y_pred_xgb))
+logger.info(f"📊 ROC-AUC Score (XGBoost): {roc_auc_score(y_valid, y_pred_xgb):.4f}")
 
 # **💾 Save trained models & encoders**
 try:
-    joblib.dump(best_xgb, "/data/xgb_model.pkl")
-    joblib.dump(rf_model, MODEL_PATH)
+    joblib.dump(rf_model, MODEL_RF_PATH)
+    joblib.dump(xgb_model, MODEL_XGB_PATH)
     joblib.dump(label_encoders, ENCODERS_PATH)
     logger.info("✅ Models and encoders saved successfully!")
 except Exception as e:
