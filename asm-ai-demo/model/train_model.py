@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import shuffle
 from sklearn.metrics import classification_report
+import numpy as np
 
 # **🛠 Set up logging**
 logging.basicConfig(level=logging.INFO)
@@ -43,10 +44,10 @@ if normal_count == 0 or malicious_count == 0:
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
 # **🚨 Check for Data Leakage (Feature Correlation)**
-correlation = df.corr()["prediction"].abs().sort_values(ascending=False)
+correlation = df.corr(numeric_only=True)["prediction"].abs().sort_values(ascending=False)
 logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation)
 
-# **❌ Remove features that directly leak the label (like 'violation' & 'response_code')**
+# **❌ Remove features that directly leak the label**
 features = [
     "bytes_sent", "bytes_received", "request_rate",
     "ip_reputation", "bot_signature"
@@ -63,23 +64,18 @@ for col in ["ip_reputation", "bot_signature"]:
 # **🚀 Shuffle dataset to prevent order bias**
 df = shuffle(df, random_state=42)
 
-# **🎯 Ensure balanced train-test split**
-df_normal = df[df["prediction"] == 0]
-df_malicious = df[df["prediction"] == 1]
+# **🔄 Balance dataset dynamically if imbalance exists**
+min_samples = min(normal_count, malicious_count)
+df_normal_balanced = df[df["prediction"] == 0].sample(min_samples, random_state=42)
+df_malicious_balanced = df[df["prediction"] == 1].sample(min_samples, random_state=42)
 
-X_train_normal, X_test_normal, y_train_normal, y_test_normal = train_test_split(
-    df_normal[features], df_normal["prediction"], test_size=0.2, random_state=42, stratify=df_normal["prediction"]
+# **Merge balanced dataset**
+df_balanced = pd.concat([df_normal_balanced, df_malicious_balanced])
+
+# **🎯 Train-test split**
+X_train, X_test, y_train, y_test = train_test_split(
+    df_balanced[features], df_balanced["prediction"], test_size=0.2, stratify=df_balanced["prediction"], random_state=42
 )
-
-X_train_malicious, X_test_malicious, y_train_malicious, y_test_malicious = train_test_split(
-    df_malicious[features], df_malicious["prediction"], test_size=0.2, random_state=42, stratify=df_malicious["prediction"]
-)
-
-# **Merge balanced datasets**
-X_train = pd.concat([X_train_normal, X_train_malicious])
-X_test = pd.concat([X_test_normal, X_test_malicious])
-y_train = pd.concat([y_train_normal, y_train_malicious])
-y_test = pd.concat([y_test_normal, y_test_malicious])
 
 # **🚀 Train Optimized Model**
 logger.info("🚀 Training optimized model...")
