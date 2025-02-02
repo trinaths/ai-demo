@@ -5,9 +5,14 @@ from flask import Flask, request, jsonify
 import yaml
 from kubernetes import client, config
 import os
+import logging
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Define paths
 MODEL_PATH = "/data/model.pkl"
@@ -19,11 +24,11 @@ os.makedirs("/data", exist_ok=True)
 
 # Load the trained model and encoders
 if os.path.exists(MODEL_PATH) and os.path.exists(ENCODERS_PATH):
-    print("Loading existing model and encoders...")
+    logger.info("Loading existing model and encoders...")
     model = joblib.load(MODEL_PATH)
     encoders = joblib.load(ENCODERS_PATH)
 else:
-    print("Error: No model found. Run initial training first!")
+    logger.error("Error: No model found. Run initial training first!")
     exit(1)
 
 app = Flask(__name__)
@@ -47,9 +52,9 @@ def update_configmap_in_k8s(ip):
         configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
         v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
 
-        print(f"ConfigMap updated successfully: IP {ip} added to blacklist.")
+        logger.info(f"ConfigMap updated successfully: IP {ip} added to blacklist.")
     except client.exceptions.ApiException as e:
-        print(f"Error updating ConfigMap: {e}")
+        logger.error(f"Error updating ConfigMap: {e}")
 
 # Function to preprocess data
 def preprocess_data(data):
@@ -59,38 +64,51 @@ def preprocess_data(data):
 
     # Handle missing or None values in the columns being encoded
     for col in ["ip_reputation", "bot_signature", "violation"]:
-        # Replace None or NaN with "Unknown" (or another appropriate value)
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
-        # Check for unseen labels and append them to the encoder
+        # Check for unseen labels and add them dynamically
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
         if unseen_labels:
             logger.warning(f"Unseen labels detected in {col}: {unseen_labels}. Adding them to the encoder.")
-            new_classes = list(set(encoders[col].classes_) | unseen_labels)
-            encoders[col].classes_ = new_classes
+            encoders[col].classes_ = list(encoders[col].classes_) + list(unseen_labels)
         
-        # Transform the data using the encoder
         df_input[col] = encoders[col].transform(df_input[col])
 
-    return df_input[features]
     return df_input[features]
 
 # Function to store data and trigger retraining
 def store_data_and_retrain(data, prediction):
     timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    data["timestamp"] = timestamp
-    data["prediction"] = prediction
-    data["severity"] = data.get("severity", "Unknown")
-    data["user_agent"] = data.get("user_agent", "Unknown")
+    
+    # Define the correct column order
+    required_columns = [
+        "timestamp", "src_ip", "request", "violation", "response_code", 
+        "bytes_sent", "bytes_received", "request_rate", "bot_signature", 
+        "severity", "user_agent", "ip_reputation", "label", "prediction"
+    ]
 
-    required_columns = ["timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", "bytes_received", "request_rate", "bot_signature", "severity", "user_agent", "ip_reputation", "label", "prediction"]
+    # Ensure correct data structure
+    row_data = {
+        "timestamp": timestamp,
+        "src_ip": data.get("src_ip", "Unknown"),
+        "request": data.get("request", "Unknown"),
+        "violation": data.get("violation", "None"),
+        "response_code": data.get("response_code", 0),
+        "bytes_sent": data.get("bytes_sent", 0),
+        "bytes_received": data.get("bytes_received", 0),
+        "request_rate": data.get("request_rate", 0),
+        "bot_signature": data.get("bot_signature", "Unknown"),
+        "severity": data.get("severity", "Unknown"),
+        "user_agent": data.get("user_agent", "Unknown"),
+        "ip_reputation": data.get("ip_reputation", "Unknown"),
+        "label": data.get("label", 0),
+        "prediction": prediction
+    }
 
-    for col in required_columns:
-        if col not in data:
-            data[col] = None
+    # Convert to DataFrame
+    df = pd.DataFrame([row_data], columns=required_columns)
 
-    df = pd.DataFrame([data])
-
+    # Append to CSV, ensuring correct column order
     if not os.path.exists(DATA_STORAGE_PATH):
         df.to_csv(DATA_STORAGE_PATH, mode='w', index=False, header=True)
     else:
@@ -100,25 +118,30 @@ def store_data_and_retrain(data, prediction):
 
 # Function to retrain the model dynamically
 def retrain_model():
-    print("Retraining model...")
-    df = pd.read_csv(DATA_STORAGE_PATH)
+    logger.info("Retraining model...")
+    
+    try:
+        df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')
 
-    label_encoders = {}
-    for col in ["ip_reputation", "bot_signature", "violation"]:
-        le = LabelEncoder()
-        df[col] = le.fit_transform(df[col].astype(str))
-        label_encoders[col] = le
+        label_encoders = {}
+        for col in ["ip_reputation", "bot_signature", "violation"]:
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col].astype(str))
+            label_encoders[col] = le
 
-    X = df[["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
-    y = df["prediction"]
+        X = df[["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
+        y = df["prediction"]
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X, y)
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model.fit(X, y)
 
-    joblib.dump(model, MODEL_PATH)
-    joblib.dump(label_encoders, ENCODERS_PATH)
+        joblib.dump(model, MODEL_PATH)
+        joblib.dump(label_encoders, ENCODERS_PATH)
 
-    print("Model retrained and updated.")
+        logger.info("Model retrained and updated.")
+
+    except Exception as e:
+        logger.error(f"Error during model retraining: {e}")
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
