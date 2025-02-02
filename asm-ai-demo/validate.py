@@ -1,13 +1,19 @@
 import requests
+import logging
+from requests.exceptions import RequestException, HTTPError, Timeout
 
-# Define the base URL for the Agent Service (Node IP and NodePort)
-NODE_IP = "<NodeIP>"  # Replace <NodeIP> with the actual IP of the node
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Define the base URL for the Agent Service
+NODE_IP = "10.4.1.115"  # Replace <NodeIP> with the actual IP of the node
 NODE_PORT = 30080  # The NodePort we defined in the service
 
 BASE_URL = f"http://{NODE_IP}:{NODE_PORT}/analyze"  # Construct the full URL
 
-# Normal Traffic Payload (matching CSV structure)
-normal_payload = {
+# Payload templates (for normal and malicious traffic)
+NORMAL_PAYLOAD = {
     "src_ip": "192.168.1.100",
     "request": "/api/resource",
     "violation": "None",
@@ -22,8 +28,7 @@ normal_payload = {
     "label": 0  # Label for training, prediction will be stored in the 'prediction' column
 }
 
-# Malicious Traffic Payload (matching CSV structure)
-malicious_payload = {
+MALICIOUS_PAYLOAD = {
     "src_ip": "192.168.1.50",
     "request": "/api/malicious",
     "violation": "XSS",
@@ -38,10 +43,50 @@ malicious_payload = {
     "label": 1  # Label for training, prediction will be stored in the 'prediction' column
 }
 
-# Test normal traffic
-response = requests.post(BASE_URL, json=normal_payload)
-print("Normal Traffic Response:", response.json())
+def send_traffic_request(payload):
+    """
+    Function to send a POST request with traffic payload.
+    Returns the JSON response if successful or None if an error occurs.
+    """
+    try:
+        logger.info("Sending request to %s with payload: %s", BASE_URL, payload)
+        
+        # Send POST request
+        response = requests.post(BASE_URL, json=payload, timeout=10)  # Added timeout for network issues
+        
+        # Check if the response status code indicates success
+        response.raise_for_status()  # Will raise an HTTPError for bad responses (4xx, 5xx)
+        
+        # Try to parse the JSON response
+        return response.json()
+    
+    except HTTPError as http_err:
+        logger.error("HTTP error occurred: %s", http_err)
+    except Timeout as timeout_err:
+        logger.error("Request timed out: %s", timeout_err)
+    except RequestException as req_err:
+        logger.error("Request error occurred: %s", req_err)
+    except ValueError as json_err:
+        logger.error("Error parsing JSON response: %s", json_err)
+    
+    return None  # Return None if there was an error
 
-# Test malicious traffic
-response = requests.post(BASE_URL, json=malicious_payload)
-print("Malicious Traffic Response:", response.json())
+def main():
+    # Test normal traffic
+    logger.info("Testing normal traffic...")
+    normal_response = send_traffic_request(NORMAL_PAYLOAD)
+    if normal_response:
+        logger.info("Normal Traffic Response: %s", normal_response)
+    else:
+        logger.error("Failed to receive or parse normal traffic response.")
+    
+    # Test malicious traffic
+    logger.info("Testing malicious traffic...")
+    malicious_response = send_traffic_request(MALICIOUS_PAYLOAD)
+    if malicious_response:
+        logger.info("Malicious Traffic Response: %s", malicious_response)
+    else:
+        logger.error("Failed to receive or parse malicious traffic response.")
+
+if __name__ == "__main__":
+    main()
