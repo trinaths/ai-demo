@@ -49,7 +49,7 @@ df["request_size_ratio"] = df["bytes_sent"] / (df["bytes_received"] + 1)  # Avoi
 df["request_rate_norm"] = np.log(df["request_rate"] + 1)  # Normalize request rate
 
 # **🔹 Remove High-Correlation Features (`response_code`)**
-df.drop(columns=["response_code"], inplace=True)  # This was causing **data leakage**
+df.drop(columns=["response_code"], inplace=True)  # **Prevent Data Leakage**
 
 # **🛠 Use IsolationForest for Anomaly Detection**
 iso_forest = IsolationForest(contamination=0.05, random_state=42)
