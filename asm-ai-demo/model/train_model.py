@@ -8,95 +8,102 @@ import os
 import logging
 import numpy as np
 
-# Set up logger
+# **🛠 Set up logger**
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-logger.addHandler(ch)
 
-# Paths
+# **📍 Paths**
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
 MODEL_PATH = "/data/model.pkl"
 ENCODERS_PATH = "/data/encoders.pkl"
 
-# Ensure data directory exists
+# **📂 Ensure directories exist**
 os.makedirs("/data", exist_ok=True)
 
-# Load dataset
-print("📥 Loading dataset for training...")
+# **📥 Load dataset**
+logger.info("📥 Loading dataset for training...")
 try:
     df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 
-    # Validate required columns
+    # **🚨 Validate required columns**
     required_columns = [
-        "response_code", "bytes_sent", "bytes_received", "request_rate", 
+        "response_code", "bytes_sent", "bytes_received", "request_rate",
         "ip_reputation", "bot_signature", "violation", "prediction"
     ]
     missing_columns = [col for col in required_columns if col not in df.columns]
+
     if missing_columns:
         raise ValueError(f"❌ Missing columns in dataset: {', '.join(missing_columns)}")
 
 except Exception as e:
-    print(f"❌ Error loading dataset: {e}")
+    logger.error(f"❌ Error loading dataset: {e}")
     exit(1)
 
-# Handle missing values
-df = df.dropna(subset=required_columns)
+# **🚨 Handle missing values properly**
+df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
-# Ensure prediction column is binary
+# **🚀 Ensure 'prediction' column is binary**
 df["prediction"] = df["prediction"].astype(int)
 
-# Balance dataset (equal malicious & normal samples)
+# **🔍 Check dataset size after filtering**
+logger.info(f"📊 Dataset: {df.shape[0]} samples ({df['prediction'].value_counts().to_dict()})")
+
+if df.shape[0] == 0:
+    logger.error("❌ No data left after filtering. Exiting training.")
+    exit(1)
+
+# **📊 Balance dataset (Ensure equal normal & malicious samples)**
 malicious_df = df[df["prediction"] == 1]
 normal_df = df[df["prediction"] == 0]
 
-if len(malicious_df) > len(normal_df):
-    malicious_df = malicious_df.sample(n=len(normal_df), random_state=42)
-elif len(normal_df) > len(malicious_df):
-    normal_df = normal_df.sample(n=len(malicious_df), random_state=42)
+if len(malicious_df) == 0 or len(normal_df) == 0:
+    logger.error("❌ Imbalanced dataset: One class has zero samples.")
+    exit(1)
 
-df = pd.concat([malicious_df, normal_df]).sample(frac=1, random_state=42)  # Shuffle data
+min_size = min(len(malicious_df), len(normal_df))
+malicious_df = malicious_df.sample(n=min_size, random_state=42)
+normal_df = normal_df.sample(n=min_size, random_state=42)
 
-# Encode categorical variables
+df = pd.concat([malicious_df, normal_df]).sample(frac=1, random_state=42)  # **Shuffle dataset**
+
+# **🔹 Encode categorical variables**
 label_encoders = {}
 for col in ["ip_reputation", "bot_signature", "violation"]:
     le = LabelEncoder()
-    try:
-        df[col] = le.fit_transform(df[col].astype(str))
-        label_encoders[col] = le
-    except Exception as e:
-        print(f"⚠️ Error encoding column {col}: {e}")
-        continue
+    df[col] = le.fit_transform(df[col].astype(str))
+    label_encoders[col] = le
 
-# Define features and target
+# **📊 Feature & Target Selection**
 features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
 target = "prediction"
 
-# Prepare data
 X = df[features]
 y = df[target]
 
-# Split into training/testing sets
+# **🚨 Validate dataset before splitting**
+if X.shape[0] == 0:
+    logger.error("❌ No valid samples available for training. Exiting.")
+    exit(1)
+
+# **🚀 Train/Test Split**
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Train model
-print("🚀 Training model...")
+logger.info(f"📊 Training on {X_train.shape[0]} samples, Testing on {X_test.shape[0]} samples.")
+
+# **🚀 Train Model**
+logger.info("🚀 Training RandomForest model...")
 model = RandomForestClassifier(n_estimators=150, random_state=42, class_weight="balanced")
 model.fit(X_train, y_train)
 
-# Evaluate model
+# **📊 Evaluate Model**
 y_pred = model.predict(X_test)
-print("📊 Model Evaluation Report:")
-print(classification_report(y_test, y_pred))
+logger.info("📊 Model Evaluation Report:\n" + classification_report(y_test, y_pred))
 
-# Save model and encoders
+# **💾 Save Model & Encoders**
 try:
     joblib.dump(model, MODEL_PATH)
     joblib.dump(label_encoders, ENCODERS_PATH)
-    print("✅ Model trained and saved successfully!")
+    logger.info("✅ Model and encoders saved successfully!")
 except Exception as e:
-    print(f"❌ Error saving model or encoders: {e}")
+    logger.error(f"❌ Error saving model: {e}")
     exit(1)
