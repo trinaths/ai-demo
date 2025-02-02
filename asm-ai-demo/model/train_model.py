@@ -2,12 +2,13 @@ import pandas as pd
 import joblib
 import os
 import logging
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
-from sklearn.utils import shuffle
-from sklearn.metrics import classification_report
 import numpy as np
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
+from sklearn.linear_model import LogisticRegression
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import classification_report
 
 # **🛠 Set up logging**
 logging.basicConfig(level=logging.INFO)
@@ -44,20 +45,15 @@ if normal_count == 0 or malicious_count == 0:
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
 # **🚨 Feature Engineering**
-# Remove `response_code` (leakage) and create new features
 df["request_size_ratio"] = df["bytes_sent"] / (df["bytes_received"] + 1)  # Avoid division by zero
 df["request_rate_norm"] = np.log(df["request_rate"] + 1)  # Normalize request rate
 
-# **📊 Check for Feature Correlation**
-correlation = df.corr(numeric_only=True)["prediction"].abs().sort_values(ascending=False)
-logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation)
+# **🔹 Remove High-Correlation Features (`response_code`)**
+df.drop(columns=["response_code"], inplace=True)  # This was causing **data leakage**
 
-# **❌ Remove Leaky Features (`response_code`)**
-features = [
-    "bytes_sent", "bytes_received", "request_rate_norm",
-    "request_size_ratio", "ip_reputation", "bot_signature"
-]
-target = "prediction"
+# **🛠 Use IsolationForest for Anomaly Detection**
+iso_forest = IsolationForest(contamination=0.05, random_state=42)
+df["anomaly_score"] = iso_forest.fit_predict(df[["bytes_sent", "bytes_received", "request_rate"]])
 
 # **🔹 Encode categorical variables**
 label_encoders = {}
@@ -66,8 +62,14 @@ for col in ["ip_reputation", "bot_signature"]:
     df[col] = le.fit_transform(df[col].astype(str))
     label_encoders[col] = le
 
-# **🚀 Shuffle dataset to prevent order bias**
-df = shuffle(df, random_state=42)
+# **🚀 Standardize Features**
+scaler = StandardScaler()
+features = ["bytes_sent", "bytes_received", "request_rate_norm", "request_size_ratio", "ip_reputation", "bot_signature", "anomaly_score"]
+df[features] = scaler.fit_transform(df[features])
+
+# **🚀 Apply PCA (Dimensionality Reduction)**
+pca = PCA(n_components=5)
+df_pca = pca.fit_transform(df[features])
 
 # **🔄 Balance dataset dynamically if imbalance exists**
 min_samples = min(normal_count, malicious_count)
@@ -104,6 +106,10 @@ logger.info("🚀 Training optimized model with best parameters...")
 model = RandomForestClassifier(**best_params, random_state=42)
 model.fit(X_train, y_train)
 
+# **🏆 Compare Against Logistic Regression**
+logistic_model = LogisticRegression(max_iter=500)
+logistic_model.fit(X_train, y_train)
+
 # **📊 Cross-Validation**
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 cross_val_scores = cross_val_score(model, X_train, y_train, cv=cv, scoring="accuracy")
@@ -112,9 +118,14 @@ logger.info(f"📊 Cross-Validation Accuracy Scores: {cross_val_scores}")
 logger.info(f"📈 Average CV Accuracy: {cross_val_scores.mean():.4f}")
 
 # **📊 Evaluate model**
-y_pred = model.predict(X_test)
-logger.info("📊 Model Evaluation Metrics:")
-logger.info("\n%s", classification_report(y_test, y_pred))
+y_pred_rf = model.predict(X_test)
+y_pred_logistic = logistic_model.predict(X_test)
+
+logger.info("📊 Model Evaluation (RandomForest):")
+logger.info("\n%s", classification_report(y_test, y_pred_rf))
+
+logger.info("📊 Model Evaluation (LogisticRegression):")
+logger.info("\n%s", classification_report(y_test, y_pred_logistic))
 
 # **💾 Save trained model & encoders**
 try:
