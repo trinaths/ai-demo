@@ -5,11 +5,8 @@ FROM python:3.8-slim
 WORKDIR /app
 
 # Install necessary dependencies
-RUN pip install --no-cache-dir \
-    pandas \
-    scikit-learn \
-    joblib \
-    numpy
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the model retraining application code to the container
 COPY . /app/
