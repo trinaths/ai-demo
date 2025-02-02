@@ -36,26 +36,29 @@ app = Flask(__name__)
 
 # Function to update the ConfigMap with malicious IP in Kubernetes
 def update_configmap_in_k8s(ip):
-    config.load_incluster_config()
-
-    namespace = "ai-workloads"
-    configmap_name = "ai-traffic-control"
-
-    v1 = client.CoreV1Api()
-
     try:
+        config.load_incluster_config()
+        namespace = "ai-workloads"
+        configmap_name = "ai-traffic-control"
+
+        v1 = client.CoreV1Api()
         configmap = v1.read_namespaced_config_map(configmap_name, namespace)
-        records = configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"]
+
+        if "declaration" in configmap.data:
+            records = configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"]
+        else:
+            records = []
 
         if ip not in [r["name"] for r in records]:
             records.append({"name": ip, "value": "AI-Blacklisted"})
+            configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
+            v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
+            logger.info(f"ConfigMap updated: IP {ip} added to blacklist.")
+        else:
+            logger.info(f"IP {ip} already exists in ConfigMap blacklist.")
 
-        configmap.data["declaration"]["Shared"]["WAF_Security"]["malicious_ip_data_group"]["records"] = records
-        v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
-
-        logger.info(f"ConfigMap updated successfully: IP {ip} added to blacklist.")
     except client.exceptions.ApiException as e:
-        logger.error(f"Error updating ConfigMap: {e}")
+        logger.error(f"Error updating ConfigMap: {e.reason} - {e.body}")
 
 # Function to preprocess data
 def preprocess_data(data):
@@ -67,10 +70,10 @@ def preprocess_data(data):
     for col in ["ip_reputation", "bot_signature", "violation"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
-        # Check for unseen labels and update encoder properly
+        # Check for unseen labels and update encoder
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
         if unseen_labels:
-            logger.warning(f"Unseen labels detected in {col}: {unseen_labels}. Adding them to the encoder.")
+            logger.warning(f"Unseen labels in {col}: {unseen_labels}. Adding them to encoder.")
 
             # Extend the encoder's classes using NumPy
             encoders[col].classes_ = np.append(encoders[col].classes_, list(unseen_labels))
@@ -109,7 +112,6 @@ def store_data_and_retrain(data, prediction):
         "prediction": prediction
     }
 
-    # Convert to DataFrame ensuring correct column order
     df = pd.DataFrame([row_data], columns=required_columns)
 
     # Append to CSV with correct format
@@ -123,9 +125,13 @@ def store_data_and_retrain(data, prediction):
 # Function to retrain the model dynamically
 def retrain_model():
     logger.info("Retraining model...")
-    
+
     try:
         df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')
+
+        # Ensure 'prediction' column exists
+        if "prediction" not in df.columns:
+            raise ValueError("Missing 'prediction' column in collected_traffic.csv")
 
         label_encoders = {}
         for col in ["ip_reputation", "bot_signature", "violation"]:
@@ -142,7 +148,7 @@ def retrain_model():
         joblib.dump(model, MODEL_PATH)
         joblib.dump(label_encoders, ENCODERS_PATH)
 
-        logger.info("Model retrained and updated.")
+        logger.info("Model retrained successfully.")
 
     except Exception as e:
         logger.error(f"Error during model retraining: {e}")
