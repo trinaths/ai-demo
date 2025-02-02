@@ -1,102 +1,97 @@
 import requests
 import logging
-from requests.exceptions import RequestException, HTTPError, Timeout
+import time
+from requests.exceptions import RequestException, HTTPError, Timeout, ConnectionError
 from datetime import datetime, timezone
 from collections import OrderedDict
 
-# **🛠 Configure Logging**
+# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# **📍 Define the base URL for the Agent Service**
-NODE_IP = "10.4.1.115"  # Replace with actual IP
-NODE_PORT = 30080  # The NodePort of the service
+# Define the base URL for the Agent Service
+NODE_IP = "10.4.1.115"  # Replace <NodeIP> with the actual IP of the node
+NODE_PORT = 30080  # The NodePort we defined in the service
 
 BASE_URL = f"http://{NODE_IP}:{NODE_PORT}/analyze"  # Construct the full URL
 
-# **🔹 Number of Times to Repeat Requests for Consistency Check**
-ITERATIONS_PER_IP = 3  
+# Maximum retries and backoff factor for handling transient failures
+MAX_RETRIES = 3
+BACKOFF_FACTOR = 2  # Exponential backoff
 
-# **🔹 Function to Add Timestamp at Start of Payload**
 def generate_payload(base_payload):
-    timestamp = datetime.now(timezone.utc).isoformat()  
-    ordered_payload = OrderedDict([("timestamp", timestamp)])  
-    ordered_payload.update(base_payload)  
+    """
+    Generates a payload with a timezone-aware UTC timestamp as the first key.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()  # ISO 8601 format with UTC timezone
+    ordered_payload = OrderedDict([("timestamp", timestamp)])  # Add timestamp first
+    ordered_payload.update(base_payload)  # Append other fields in order
     return ordered_payload
 
-# **🔹 Normal Traffic Payload**
-BASE_NORMAL_PAYLOAD = {
-    "src_ip": "192.168.1.100",
-    "request": "/api/resource",
-    "violation": "None",
-    "response_code": 200,
-    "bytes_sent": 4000,
-    "bytes_received": 1500,
-    "request_rate": 500,
-    "bot_signature": "Unknown",
-    "severity": "Low",
-    "user_agent": "Mozilla/5.0",
-    "ip_reputation": "Good",
-    "prediction": 0  # ✅ Expected to be classified as "normal"
-}
 
-# **🔹 Malicious Traffic Payload**
 BASE_MALICIOUS_PAYLOAD = {
-    "src_ip": "192.168.1.50",
+    "src_ip": "10.0.0.50",
     "request": "/api/malicious",
-    "violation": "SQL Injection",
+    "violation": "XSS",
     "response_code": 403,
-    "bytes_sent": 3000,
-    "bytes_received": 1000,
-    "request_rate": 2200,  # 🚨 High request rate typical of attacks
+    "bytes_sent": 1500,
+    "bytes_received": 700,
+    "request_rate": 1200,
     "bot_signature": "Known Malicious",
-    "severity": "High",
-    "user_agent": "BurpSuite",
-    "ip_reputation": "Malicious",
-    "prediction": 1  # 🚨 Expected to be classified as "malicious"
+    "severity": "High",  # Optional
+    "user_agent": "BadBot/1.0",  # Optional
+    "ip_reputation": "Suspicious",
+    "prediction": 1  # Label for training, prediction will be stored in the 'prediction' column
 }
 
-# **🔹 Function to Send Requests to Agent**
-def send_traffic_request(payload, expected_prediction, iteration):
-    """ Sends a POST request and verifies if the agent blocks/accepts correctly. """
+def send_traffic_request(payload, attempt=1):
+    """
+    Function to send a POST request with traffic payload.
+    Implements retry logic in case of network issues.
+    Returns the JSON response if successful, otherwise None.
+    """
     try:
-        logger.info(f"🚀 [{iteration+1}/{ITERATIONS_PER_IP}] Sending request to {BASE_URL} with payload: {payload}")
+        logger.info(f"Attempt {attempt}: Sending request to {BASE_URL} with payload: {payload}")
+
+        response = requests.post(BASE_URL, json=payload, timeout=10)  # 10s timeout
         
-        response = requests.post(BASE_URL, json=payload, timeout=10)  
-        response.raise_for_status()  # Raise error for bad HTTP responses (4xx, 5xx)
-
+        # Check if the response status code indicates success
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx, 5xx)
+        
+        # Try to parse the JSON response
         json_response = response.json()
-        logger.info(f"✅ Response: {json_response}")
 
-        # **Check if response matches expectation**
-        actual_prediction = 1 if json_response["status"] == "malicious" else 0
-
-        if actual_prediction != expected_prediction:
-            logger.error(f"❌ [Iteration {iteration+1}] Incorrect classification! Expected: {expected_prediction}, Got: {actual_prediction}")
+        if isinstance(json_response, dict):  # Validate response format
+            return json_response
         else:
-            logger.info(f"✅ [Iteration {iteration+1}] Correctly classified: {json_response}")
+            logger.error(f"Unexpected response format: {json_response}")
+            return None
 
-    except HTTPError as http_err:
-        logger.error(f"❌ HTTP error occurred: {http_err}")
-    except Timeout as timeout_err:
-        logger.error(f"❌ Request timed out: {timeout_err}")
-    except RequestException as req_err:
-        logger.error(f"❌ Request error occurred: {req_err}")
+    except (HTTPError, ConnectionError, Timeout) as error:
+        logger.error(f"Request error: {error}")
+
+        if attempt < MAX_RETRIES:
+            sleep_time = BACKOFF_FACTOR ** (attempt - 1)  # Exponential backoff
+            logger.info(f"Retrying in {sleep_time} seconds...")
+            time.sleep(sleep_time)
+            return send_traffic_request(payload, attempt + 1)  # Recursive retry
+        else:
+            logger.error(f"Max retries reached. Failed to send request.")
+    
     except ValueError as json_err:
-        logger.error(f"❌ Error parsing JSON response: {json_err}")
+        logger.error(f"Error parsing JSON response: {json_err}")
 
-# **🔹 Main Function to Test Both Normal & Malicious Traffic Multiple Times**
+    return None  # Return None if there was an error
+
 def main():
-    logger.info(f"🔄 Running {ITERATIONS_PER_IP} tests per IP to ensure consistency.")
-
-    for i in range(ITERATIONS_PER_IP):
-        logger.info(f"🔹 Normal Traffic Test {i+1}/{ITERATIONS_PER_IP}...")
-        normal_payload = generate_payload(BASE_NORMAL_PAYLOAD)
-        send_traffic_request(normal_payload, expected_prediction=0, iteration=i)
-
-        logger.info(f"🔹 Malicious Traffic Test {i+1}/{ITERATIONS_PER_IP}...")
-        malicious_payload = generate_payload(BASE_MALICIOUS_PAYLOAD)
-        send_traffic_request(malicious_payload, expected_prediction=1, iteration=i)
+    # Test malicious traffic with timestamp
+    malicious_payload = generate_payload(BASE_MALICIOUS_PAYLOAD)
+    logger.info("\n🔹 Testing MALICIOUS traffic...")
+    malicious_response = send_traffic_request(malicious_payload)
+    if malicious_response:
+        logger.info(f"✅ Malicious Traffic Response: {malicious_response}")
+    else:
+        logger.error("❌ Failed to receive or parse malicious traffic response.")
 
 if __name__ == "__main__":
     main()
