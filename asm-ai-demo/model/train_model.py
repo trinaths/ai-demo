@@ -31,11 +31,19 @@ if df.empty or "prediction" not in df.columns:
     exit(1)
 
 # **🔍 Drop Non-Numeric Columns Before Correlation Analysis**
-non_numeric_cols = ["timestamp", "src_ip", "request", "violation", "bot_signature", "user_agent", "ip_reputation"]
-df_numeric = df.drop(columns=non_numeric_cols, errors="ignore")
+non_numeric_cols = ["timestamp", "src_ip", "request"]
+df.drop(columns=non_numeric_cols, errors="ignore", inplace=True)
+
+# **🔹 Encode Categorical Variables (BEFORE correlation)**
+label_encoders = {}
+for col in ["ip_reputation", "bot_signature", "severity", "violation"]:
+    if col in df.columns:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col].astype(str))
+        label_encoders[col] = le
 
 # **📊 Compute Correlation on Numeric Data Only**
-correlation_matrix = df_numeric.corr()
+correlation_matrix = df.corr()
 high_corr_features = correlation_matrix["prediction"].abs().sort_values(ascending=False)
 
 # **🛑 Drop Highly Correlated Features (Above 0.95)**
@@ -44,18 +52,11 @@ if drop_features:
     logger.info(f"🛑 Dropping highly correlated features: {drop_features}")
     df.drop(columns=drop_features, inplace=True)
 
-# **🚀 Feature Selection (Now Encoding Categorical Variables)**
+# **🚀 Feature Selection**
 features = [
-    "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature"
+    "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "severity"
 ]
 target = "prediction"
-
-# **🔹 Encode Categorical Variables**
-label_encoders = {}
-for col in ["ip_reputation", "bot_signature"]:
-    le = LabelEncoder()
-    df[col] = le.fit_transform(df[col].astype(str))
-    label_encoders[col] = le
 
 # **🎯 Train-Test Split**
 X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, random_state=42, stratify=df[target])
