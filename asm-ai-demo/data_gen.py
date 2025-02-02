@@ -4,7 +4,7 @@ import random
 from datetime import datetime, timedelta
 
 # Number of logs to generate
-NUM_LOGS = 100
+NUM_LOGS = 10000
 
 # Define attack and normal traffic behaviors
 user_agents = [
