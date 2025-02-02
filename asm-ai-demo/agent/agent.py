@@ -61,8 +61,8 @@ def update_configmap_in_k8s(ip):
         records = waf_security["malicious_ip_data_group"].get("records", [])
 
         # Check if the IP is already present
-        if not any(entry["name"] == ip for entry in records):
-            records.append({"name": ip, "value": "AI-Blacklisted"})
+        if not any(entry["key"] == ip for entry in records):
+            records.append({"key": ip, "value": "AI-Blacklisted"})
             waf_security["malicious_ip_data_group"]["records"] = records
 
             # Convert back to JSON and update ConfigMap
