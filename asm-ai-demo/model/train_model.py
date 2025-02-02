@@ -21,34 +21,25 @@ os.makedirs("/data", exist_ok=True)
 
 # **📥 Load dataset**
 logger.info("📥 Loading dataset for training...")
-try:
-    df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')
+df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')
 
-    # **Validate required columns**
-    required_columns = [
-        "response_code", "bytes_sent", "bytes_received", "request_rate",
-        "ip_reputation", "bot_signature", "violation", "prediction"
-    ]
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        raise ValueError(f"❌ Missing columns in dataset: {', '.join(missing_columns)}")
-
-except Exception as e:
-    logger.error(f"❌ Error loading dataset: {e}")
+# **Ensure dataset is not empty**
+if df.empty or "prediction" not in df.columns:
+    logger.error("❌ Dataset is empty or missing the 'prediction' column. Exiting training.")
     exit(1)
 
-# **🧹 Handle missing values**
-df = df.dropna(subset=required_columns)
-
-# **📉 Fix Class Imbalance**
+# **Fix Class Imbalance**
 normal_count = len(df[df["prediction"] == 0])
 malicious_count = len(df[df["prediction"] == 1])
 
-if normal_count < malicious_count:
-    df_malicious = df[df["prediction"] == 1].sample(normal_count, random_state=42)
-    df_normal = df[df["prediction"] == 0]
-    df = pd.concat([df_malicious, df_normal])
-    logger.info(f"📊 Balanced dataset: {len(df[df['prediction']==0])} normal vs {len(df[df['prediction']==1])} malicious.")
+if normal_count == 0 or malicious_count == 0:
+    logger.error(f"❌ Not enough data: {normal_count} normal vs {malicious_count} malicious.")
+    exit(1)
+
+logger.info(f"📊 Dataset contains {normal_count} normal vs {malicious_count} malicious samples.")
+
+# **🧹 Handle missing values**
+df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
 # **🔹 Encode categorical variables**
 label_encoders = {}
@@ -58,7 +49,11 @@ for col in ["ip_reputation", "bot_signature", "violation"]:
     label_encoders[col] = le
 
 # **🛠 Feature selection**
-features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
+features = [
+    "response_code", "bytes_sent", "bytes_received", "request_rate",
+    "ip_reputation", "bot_signature", "violation"
+]
+
 target = "prediction"
 
 X = df[features]
@@ -67,14 +62,14 @@ y = df[target]
 # **🧪 Split dataset into training & testing sets**
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# **🎯 Train model with regularization**
+# **🎯 Train model with optimized settings**
 logger.info("🚀 Training optimized model...")
 model = RandomForestClassifier(
-    n_estimators=100,  
-    max_depth=8,  # **Reduce depth to prevent overfitting**
-    min_samples_split=10,  # **Higher value ensures generalization**
-    min_samples_leaf=5,  # **Avoids learning noise**
-    class_weight="balanced",  # **Compensates for any remaining class imbalance**
+    n_estimators=200,  
+    max_depth=10,  # **Prevent overfitting**
+    min_samples_split=8,  
+    min_samples_leaf=4,  
+    class_weight="balanced",  # **Compensates for class imbalance**
     random_state=42
 )
 model.fit(X_train, y_train)
