@@ -57,9 +57,22 @@ def preprocess_data(data):
 
     df_input = pd.DataFrame([data])
 
+    # Handle missing or None values in the columns being encoded
     for col in ["ip_reputation", "bot_signature", "violation"]:
-        df_input[col] = encoders[col].transform(df_input[col].astype(str))
+        # Replace None or NaN with "Unknown" (or another appropriate value)
+        df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
+        # Check for unseen labels and append them to the encoder
+        unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
+        if unseen_labels:
+            logger.warning(f"Unseen labels detected in {col}: {unseen_labels}. Adding them to the encoder.")
+            new_classes = list(set(encoders[col].classes_) | unseen_labels)
+            encoders[col].classes_ = new_classes
+        
+        # Transform the data using the encoder
+        df_input[col] = encoders[col].transform(df_input[col])
+
+    return df_input[features]
     return df_input[features]
 
 # Function to store data and trigger retraining
