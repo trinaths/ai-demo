@@ -6,6 +6,7 @@ import yaml
 from kubernetes import client, config
 import os
 import logging
+import numpy as np
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
@@ -35,7 +36,7 @@ app = Flask(__name__)
 
 # Function to update the ConfigMap with malicious IP in Kubernetes
 def update_configmap_in_k8s(ip):
-    config.load_incluster_config()  # Automatically loads from the service account when inside Kubernetes
+    config.load_incluster_config()
 
     namespace = "ai-workloads"
     configmap_name = "ai-traffic-control"
@@ -62,16 +63,19 @@ def preprocess_data(data):
 
     df_input = pd.DataFrame([data])
 
-    # Handle missing or None values in the columns being encoded
+    # Handle missing values
     for col in ["ip_reputation", "bot_signature", "violation"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
-        # Check for unseen labels and add them dynamically
+        # Check for unseen labels and update encoder properly
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
         if unseen_labels:
             logger.warning(f"Unseen labels detected in {col}: {unseen_labels}. Adding them to the encoder.")
-            encoders[col].classes_ = list(encoders[col].classes_) + list(unseen_labels)
-        
+
+            # Extend the encoder's classes using NumPy
+            encoders[col].classes_ = np.append(encoders[col].classes_, list(unseen_labels))
+
+        # Transform the column using the updated encoder
         df_input[col] = encoders[col].transform(df_input[col])
 
     return df_input[features]
@@ -105,10 +109,10 @@ def store_data_and_retrain(data, prediction):
         "prediction": prediction
     }
 
-    # Convert to DataFrame
+    # Convert to DataFrame ensuring correct column order
     df = pd.DataFrame([row_data], columns=required_columns)
 
-    # Append to CSV, ensuring correct column order
+    # Append to CSV with correct format
     if not os.path.exists(DATA_STORAGE_PATH):
         df.to_csv(DATA_STORAGE_PATH, mode='w', index=False, header=True)
     else:

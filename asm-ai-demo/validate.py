@@ -1,6 +1,8 @@
 import requests
 import logging
 from requests.exceptions import RequestException, HTTPError, Timeout
+from datetime import datetime, timezone
+from collections import OrderedDict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,8 +14,17 @@ NODE_PORT = 30080  # The NodePort we defined in the service
 
 BASE_URL = f"http://{NODE_IP}:{NODE_PORT}/analyze"  # Construct the full URL
 
-# Payload templates (for normal and malicious traffic)
-NORMAL_PAYLOAD = {
+def generate_payload(base_payload):
+    """
+    Generates a payload with a timezone-aware UTC timestamp as the first key.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()  # Using ISO format with UTC timezone
+    ordered_payload = OrderedDict([("timestamp", timestamp)])  # Add timestamp first
+    ordered_payload.update(base_payload)  # Append other fields in order
+    return ordered_payload
+
+# Base Payload templates (WITHOUT "timestamp" key)
+BASE_NORMAL_PAYLOAD = {
     "src_ip": "192.168.1.100",
     "request": "/api/resource",
     "violation": "None",
@@ -28,7 +39,7 @@ NORMAL_PAYLOAD = {
     "label": 0  # Label for training, prediction will be stored in the 'prediction' column
 }
 
-MALICIOUS_PAYLOAD = {
+BASE_MALICIOUS_PAYLOAD = {
     "src_ip": "192.168.1.50",
     "request": "/api/malicious",
     "violation": "XSS",
@@ -72,17 +83,19 @@ def send_traffic_request(payload):
     return None  # Return None if there was an error
 
 def main():
-    # Test normal traffic
+    # Test normal traffic with timestamp
+    normal_payload = generate_payload(BASE_NORMAL_PAYLOAD)
     logger.info("Testing normal traffic...")
-    normal_response = send_traffic_request(NORMAL_PAYLOAD)
+    normal_response = send_traffic_request(normal_payload)
     if normal_response:
         logger.info("Normal Traffic Response: %s", normal_response)
     else:
         logger.error("Failed to receive or parse normal traffic response.")
     
-    # Test malicious traffic
+    # Test malicious traffic with timestamp
+    malicious_payload = generate_payload(BASE_MALICIOUS_PAYLOAD)
     logger.info("Testing malicious traffic...")
-    malicious_response = send_traffic_request(MALICIOUS_PAYLOAD)
+    malicious_response = send_traffic_request(malicious_payload)
     if malicious_response:
         logger.info("Malicious Traffic Response: %s", malicious_response)
     else:
