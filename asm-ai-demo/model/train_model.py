@@ -5,6 +5,16 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report
 import joblib
 import os
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+ch = logging.StreamHandler()
+ch.setLevel(logging.WARNING)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 # Path to data storage
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
@@ -18,7 +28,7 @@ os.makedirs("/data", exist_ok=True)
 print("Loading initial dataset for training...")
 
 try:
-    df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')  # Skip malformed lines
+    df = pd.read_csv(DATA_STORAGE_PATH, error_bad_lines=False)  # Skip malformed lines
 
     # Validate required columns exist
     required_columns = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "label"]
