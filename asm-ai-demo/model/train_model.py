@@ -2,7 +2,7 @@ import pandas as pd
 import joblib
 import os
 import logging
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import shuffle
@@ -47,7 +47,7 @@ df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Go
 correlation = df.corr(numeric_only=True)["prediction"].abs().sort_values(ascending=False)
 logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation)
 
-# **❌ Remove features that directly leak the label**
+# **❌ Remove Leaky Features (`response_code`)**
 features = [
     "bytes_sent", "bytes_received", "request_rate",
     "ip_reputation", "bot_signature"
@@ -77,16 +77,26 @@ X_train, X_test, y_train, y_test = train_test_split(
     df_balanced[features], df_balanced["prediction"], test_size=0.2, stratify=df_balanced["prediction"], random_state=42
 )
 
+# **🎛 Grid Search for Best Hyperparameters**
+param_grid = {
+    "n_estimators": [100, 150, 200],
+    "max_depth": [5, 7, 10],
+    "min_samples_split": [5, 10],
+    "min_samples_leaf": [2, 5, 10],
+    "class_weight": ["balanced"]
+}
+
+rf_model = RandomForestClassifier(random_state=42)
+
+grid_search = GridSearchCV(rf_model, param_grid, cv=3, scoring="accuracy", n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+best_params = grid_search.best_params_
+logger.info(f"✅ Best Model Parameters: {best_params}")
+
 # **🚀 Train Optimized Model**
-logger.info("🚀 Training optimized model...")
-model = RandomForestClassifier(
-    n_estimators=150,  
-    max_depth=7,  # **Lower depth prevents overfitting**
-    min_samples_split=10,  
-    min_samples_leaf=5,  
-    class_weight="balanced",  # **Handles class imbalance**
-    random_state=42
-)
+logger.info("🚀 Training optimized model with best parameters...")
+model = RandomForestClassifier(**best_params, random_state=42)
 model.fit(X_train, y_train)
 
 # **📊 Cross-Validation**
