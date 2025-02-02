@@ -82,7 +82,7 @@ def preprocess_data(data):
 
 # Function to store data and trigger retraining
 def store_data_and_retrain(data, prediction):
-    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.now(timezone.utc).isoformat()
     
     # Define the correct column order
     required_columns = [
