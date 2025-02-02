@@ -9,24 +9,19 @@ import logging
 import numpy as np
 
 # Set up logger
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-logger.addHandler(ch)
 
 # Paths
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
 MODEL_PATH = "/data/model.pkl"
 ENCODERS_PATH = "/data/encoders.pkl"
 
-# Ensure data directory exists
+# Ensure directory exists
 os.makedirs("/data", exist_ok=True)
 
 # Load dataset
-print("📥 Loading dataset for training...")
+logger.info("📥 Loading dataset for training...")
 try:
     df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 
@@ -40,24 +35,32 @@ try:
         raise ValueError(f"❌ Missing columns in dataset: {', '.join(missing_columns)}")
 
 except Exception as e:
-    print(f"❌ Error loading dataset: {e}")
+    logger.error(f"❌ Error loading dataset: {e}")
     exit(1)
 
-# Handle missing values
-df = df.dropna(subset=required_columns)
+# Drop NaN values in required columns
+df.dropna(subset=required_columns, inplace=True)
 
-# Ensure prediction column is binary
+# **✅ Check if dataset is empty**
+if df.empty:
+    logger.error("❌ Dataset is empty after preprocessing. No training will be performed.")
+    exit(1)
+
+# Ensure 'prediction' column is binary
 df["prediction"] = df["prediction"].astype(int)
 
-# Balance dataset (equal malicious & normal samples)
+# **✅ Ensure Balanced Dataset (Prevent Model Bias)**
 malicious_df = df[df["prediction"] == 1]
 normal_df = df[df["prediction"] == 0]
 
-if len(malicious_df) > len(normal_df):
-    malicious_df = malicious_df.sample(n=len(normal_df), random_state=42)
-elif len(normal_df) > len(malicious_df):
-    normal_df = normal_df.sample(n=len(malicious_df), random_state=42)
+if malicious_df.empty or normal_df.empty:
+    logger.error("❌ Dataset contains only one class (all malicious or all normal). Model training requires both classes.")
+    exit(1)
 
+# Balance dataset (equal malicious & normal samples)
+min_size = min(len(malicious_df), len(normal_df))
+malicious_df = malicious_df.sample(n=min_size, random_state=42)
+normal_df = normal_df.sample(n=min_size, random_state=42)
 df = pd.concat([malicious_df, normal_df]).sample(frac=1, random_state=42)  # Shuffle data
 
 # Encode categorical variables
@@ -68,7 +71,7 @@ for col in ["ip_reputation", "bot_signature", "violation"]:
         df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
     except Exception as e:
-        print(f"⚠️ Error encoding column {col}: {e}")
+        logger.warning(f"⚠️ Error encoding column {col}: {e}")
         continue
 
 # Define features and target
@@ -79,24 +82,29 @@ target = "prediction"
 X = df[features]
 y = df[target]
 
+# **✅ Ensure dataset has samples before splitting**
+if len(X) < 2:
+    logger.error("❌ Insufficient data to split into training and testing sets.")
+    exit(1)
+
 # Split into training/testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Train model
-print("🚀 Training model...")
+logger.info("🚀 Training model...")
 model = RandomForestClassifier(n_estimators=150, random_state=42, class_weight="balanced")
 model.fit(X_train, y_train)
 
 # Evaluate model
 y_pred = model.predict(X_test)
-print("📊 Model Evaluation Report:")
-print(classification_report(y_test, y_pred))
+logger.info("📊 Model Evaluation Report:")
+logger.info("\n" + classification_report(y_test, y_pred))
 
 # Save model and encoders
 try:
     joblib.dump(model, MODEL_PATH)
     joblib.dump(label_encoders, ENCODERS_PATH)
-    print("✅ Model trained and saved successfully!")
+    logger.info("✅ Model trained and saved successfully!")
 except Exception as e:
-    print(f"❌ Error saving model or encoders: {e}")
+    logger.error(f"❌ Error saving model or encoders: {e}")
     exit(1)
