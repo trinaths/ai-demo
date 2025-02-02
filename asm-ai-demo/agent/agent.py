@@ -93,7 +93,7 @@ def store_data_and_retrain(data, prediction):
 
     # Ensure correct data structure
     row_data = {
-        "timestamp": timestamp,
+        "timestamp": data.get("timestamp", timestamp),
         "src_ip": data.get("src_ip", "Unknown"),
         "request": data.get("request", "Unknown"),
         "violation": data.get("violation", "None"),
