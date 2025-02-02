@@ -43,14 +43,19 @@ if normal_count == 0 or malicious_count == 0:
 # **🧹 Handle missing values**
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 
-# **🚨 Check for Data Leakage (Feature Correlation)**
+# **🚨 Feature Engineering**
+# Remove `response_code` (leakage) and create new features
+df["request_size_ratio"] = df["bytes_sent"] / (df["bytes_received"] + 1)  # Avoid division by zero
+df["request_rate_norm"] = np.log(df["request_rate"] + 1)  # Normalize request rate
+
+# **📊 Check for Feature Correlation**
 correlation = df.corr(numeric_only=True)["prediction"].abs().sort_values(ascending=False)
 logger.info("📊 Feature Correlation with 'prediction':\n%s", correlation)
 
 # **❌ Remove Leaky Features (`response_code`)**
 features = [
-    "bytes_sent", "bytes_received", "request_rate",
-    "ip_reputation", "bot_signature"
+    "bytes_sent", "bytes_received", "request_rate_norm",
+    "request_size_ratio", "ip_reputation", "bot_signature"
 ]
 target = "prediction"
 
