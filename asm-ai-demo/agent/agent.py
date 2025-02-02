@@ -78,7 +78,7 @@ def preprocess_data(data):
     df_input = pd.DataFrame([data])
 
     # **Handle unseen categories**
-    for col in ["ip_reputation", "bot_signature", "violation"]:
+    for col in ["ip_reputation", "bot_signature"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
 
         unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
