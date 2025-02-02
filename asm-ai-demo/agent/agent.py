@@ -7,7 +7,7 @@ from kubernetes import client, config
 import os
 import logging
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
