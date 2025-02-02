@@ -33,7 +33,7 @@ metadata:
   namespace: ai-workloads  # Ensure it’s the same namespace as your deployment
 spec:
   accessModes:
-    - ReadWriteMany  # Allow multiple services to read/write to the volume
+    - ReadWriteOnce  # Allow multiple services to read/write to the volume
   resources:
     requests:
       storage: 5Gi  # Request the same size as the PV
