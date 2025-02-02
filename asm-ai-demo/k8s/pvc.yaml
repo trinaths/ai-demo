@@ -18,8 +18,13 @@ spec:
               values:
                 - 26a56558-9eca-4421-9d1c-171488b8184e  # Replace <node-name> with the actual name of the node where you want the volume to reside.
   hostPath:
-    path: /var/home/core/data  # Path to the directory on the host node's filesystem.
+    path: /tmp/data  # Path to the directory on the host node's filesystem.
     type: DirectoryOrCreate  # Optional: This ensures that the directory is created if it doesn't exist.
+  seLinuxOptions:
+    user: "system_u"
+    role: "system_r"
+    type: "svirt_lxc_net_t"
+    level: "s0"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
