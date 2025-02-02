@@ -1,18 +1,26 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: model-shared-volume
+  name: pv-example
 spec:
   capacity:
     storage: 5Gi
   volumeMode: Filesystem
   accessModes:
-    - ReadWriteMany  # Allow multiple pods to read/write to this volume
+    - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: manual  # Match the PVC's storage class
+  storageClassName: manual
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - 26a56558-9eca-4421-9d1c-171488b8184e  # Replace with the node name where you want to mount the directory
   hostPath:
-    path: /mnt/data  # The shared directory on the node
-    type: Directory  # Ensure it's a directory
+    path: /mnt/data  # Path on the host node's filesystem
+    type: Directory
 
 ---
 apiVersion: v1
