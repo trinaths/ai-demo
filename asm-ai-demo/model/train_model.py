@@ -2,7 +2,7 @@ import pandas as pd
 import joblib
 import os
 import logging
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, GridSearchCV
+from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
@@ -30,34 +30,27 @@ if df.empty or "prediction" not in df.columns:
     logger.error("❌ Dataset is empty or missing 'prediction' column. Exiting training.")
     exit(1)
 
-# **🔍 Check dataset balance**
-normal_count = df[df["prediction"] == 0].shape[0]
-malicious_count = df[df["prediction"] == 1].shape[0]
+# **🔍 Drop Non-Numeric Columns Before Correlation Analysis**
+non_numeric_cols = ["timestamp", "src_ip", "request", "violation", "bot_signature", "user_agent", "ip_reputation"]
+df_numeric = df.drop(columns=non_numeric_cols, errors="ignore")
 
-logger.info(f"📊 Dataset: {normal_count} normal vs {malicious_count} malicious.")
-
-if normal_count == 0 or malicious_count == 0:
-    logger.error("❌ Not enough data in either class. Exiting.")
-    exit(1)
-
-# **🧹 Handle missing values**
-df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
-
-# **🛑 Drop Highly Correlated Features**
-correlation_matrix = df.corr()
+# **📊 Compute Correlation on Numeric Data Only**
+correlation_matrix = df_numeric.corr()
 high_corr_features = correlation_matrix["prediction"].abs().sort_values(ascending=False)
+
+# **🛑 Drop Highly Correlated Features (Above 0.95)**
 drop_features = [col for col in high_corr_features.index if col != "prediction" and high_corr_features[col] > 0.95]
 if drop_features:
     logger.info(f"🛑 Dropping highly correlated features: {drop_features}")
     df.drop(columns=drop_features, inplace=True)
 
-# **🚀 Feature Selection**
+# **🚀 Feature Selection (Now Encoding Categorical Variables)**
 features = [
     "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature"
 ]
 target = "prediction"
 
-# **🔹 Encode categorical variables**
+# **🔹 Encode Categorical Variables**
 label_encoders = {}
 for col in ["ip_reputation", "bot_signature"]:
     le = LabelEncoder()
