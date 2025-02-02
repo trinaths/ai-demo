@@ -1,8 +1,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: pv-example
-spec:
+  name: model-shared-volume
   capacity:
     storage: 5Gi
   volumeMode: Filesystem
@@ -19,7 +18,7 @@ spec:
               values:
                 - 26a56558-9eca-4421-9d1c-171488b8184e  # Replace with the node name where you want to mount the directory
   hostPath:
-    path: /mnt/data  # Path on the host node's filesystem
+    path: /var/home/core/data  # Path on the host node's filesystem
     type: Directory
 
 ---
