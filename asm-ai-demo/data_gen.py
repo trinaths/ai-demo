@@ -3,12 +3,12 @@ import pandas as pd
 import random
 from datetime import datetime, timedelta
 
-# **📌 Number of logs to generate**
+# **Number of logs to generate**
 NUM_NORMAL = 5000
 NUM_MALICIOUS = 5000
 TOTAL_LOGS = NUM_NORMAL + NUM_MALICIOUS
 
-# **🛠 Define attack & normal traffic behaviors**
+# **Define attack & normal traffic behaviors**
 user_agents = [
     "Mozilla/5.0", "curl/7.68.0", "PostmanRuntime", "GoogleBot",
     "ZGrab", "BurpSuite", "Nessus", "SQLMap", "Nmap Scripting Engine"
@@ -19,7 +19,7 @@ violations = [
     "DDoS", "Brute Force", "Credential Stuffing"
 ]
 
-# **🔹 Attack variations with more distinct feature separation**
+# **Attack variations with more distinct feature separation**
 malicious_attack_patterns = [
     {"violation": "SQL Injection", "response_code": 403, "bytes_sent": 3000, "bytes_received": 1200, "request_rate": 2500},
     {"violation": "XSS", "response_code": 403, "bytes_sent": 2200, "bytes_received": 900, "request_rate": 1900},
@@ -29,13 +29,13 @@ malicious_attack_patterns = [
     {"violation": "Remote File Inclusion", "response_code": 500, "bytes_sent": 3500, "bytes_received": 2000, "request_rate": 2700},
 ]
 
-# **📅 Generate realistic timestamps**
+# **Generate realistic timestamps**
 def random_timestamp():
     base_time = datetime.utcnow()
     random_offset = timedelta(days=random.randint(0, 30), hours=random.randint(0, 23), minutes=random.randint(0, 59), seconds=random.randint(0, 59))
     return (base_time - random_offset).isoformat() + "Z"
 
-# **🚀 Generate normal and malicious logs separately**
+# **Generate normal and malicious logs separately**
 logs = []
 
 # **Generate normal traffic**
@@ -77,18 +77,18 @@ for _ in range(NUM_MALICIOUS):
     }
     logs.append(log)
 
-# **🔄 Shuffle data to prevent sequential bias**
+# **Shuffle data to prevent sequential bias**
 random.shuffle(logs)
 
-# **📊 Convert to DataFrame**
+# **Convert to DataFrame**
 df_generated = pd.DataFrame(logs)
 
-# **✅ Validate & Save CSV**
+# **Validate & Save CSV**
 csv_filename = "collected_traffic.csv"
 required_columns = ["timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", "bytes_received", "request_rate", "bot_signature", "severity", "user_agent", "ip_reputation", "prediction"]
 
 if not df_generated.empty and all(col in df_generated.columns for col in required_columns):
     df_generated.to_csv(csv_filename, index=False)
-    print(f"✅ Successfully generated dataset with {len(df_generated)} samples: {NUM_NORMAL} normal, {NUM_MALICIOUS} malicious.")
+    print(f"Successfully generated dataset with {len(df_generated)} samples: {NUM_NORMAL} normal, {NUM_MALICIOUS} malicious.")
 else:
-    print("❌ Data validation failed! Missing required columns.")
+    print("Data validation failed! Missing required columns.")

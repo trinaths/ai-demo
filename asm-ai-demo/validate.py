@@ -5,16 +5,16 @@ from requests.exceptions import RequestException, HTTPError, Timeout, Connection
 from datetime import datetime, timezone
 from collections import OrderedDict
 
-# **📌 Configure logging**
+# **Configure logging**
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# **🌍 Define the AI-WAF API Endpoint**
+# **Define the AI-WAF API Endpoint**
 NODE_IP = "10.4.1.115"  # Update with your AI-WAF node IP
 NODE_PORT = 30080  # The exposed NodePort of the service
 BASE_URL = f"http://{NODE_IP}:{NODE_PORT}/analyze"
 
-# **🔄 Retry settings**
+# **Retry settings**
 MAX_RETRIES = 3
 BACKOFF_FACTOR = 2  # Exponential backoff
 
@@ -33,7 +33,7 @@ def send_request(payload, attempt=1):
     Implements retries in case of network failures.
     """
     try:
-        logger.info(f"🚀 Attempt {attempt}: Sending request to {BASE_URL} with payload: {payload}")
+        logger.info(f"Attempt {attempt}: Sending request to {BASE_URL} with payload: {payload}")
         response = requests.post(BASE_URL, json=payload, timeout=10)  # 10s timeout
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx, 5xx)
         json_response = response.json()
@@ -41,22 +41,22 @@ def send_request(payload, attempt=1):
         if isinstance(json_response, dict):  # Ensure valid response format
             return json_response
         else:
-            logger.error(f"⚠️ Unexpected response format: {json_response}")
+            logger.error(f"Unexpected response format: {json_response}")
             return None
 
     except (HTTPError, ConnectionError, Timeout) as error:
-        logger.error(f"❌ Request error: {error}")
+        logger.error(f"Request error: {error}")
 
         if attempt < MAX_RETRIES:
             sleep_time = BACKOFF_FACTOR ** (attempt - 1)  # Exponential backoff
-            logger.info(f"🔄 Retrying in {sleep_time} seconds...")
+            logger.info(f"Retrying in {sleep_time} seconds...")
             time.sleep(sleep_time)
             return send_request(payload, attempt + 1)
         else:
-            logger.error(f"❌ Max retries reached. Failed to send request.")
+            logger.error(f"Max retries reached. Failed to send request.")
     
     except ValueError as json_err:
-        logger.error(f"❌ Error parsing JSON response: {json_err}")
+        logger.error(f"Error parsing JSON response: {json_err}")
 
     return None  # Return None if there was an error
 
@@ -69,22 +69,22 @@ def test_requests(requests_list, expected_status):
         response = send_request(request_payload)
 
         if response:
-            logger.info(f"✅ Response: {response}")
+            logger.info(f"Response: {response}")
 
             # **Validate if response is as expected**
             if response.get("status") == expected_status:
-                logger.info(f"✅ SUCCESS: {payload['src_ip']} classified correctly as {expected_status.upper()}")
+                logger.info(f"SUCCESS: {payload['src_ip']} classified correctly as {expected_status.upper()}")
             else:
-                logger.error(f"❌ MISMATCH: Expected {expected_status.upper()} but got {response.get('status')}")
+                logger.error(f"MISMATCH: Expected {expected_status.upper()} but got {response.get('status')}")
         else:
-            logger.error(f"❌ Failed to receive response for {payload['src_ip']}")
+            logger.error(f"Failed to receive response for {payload['src_ip']}")
 
 def main():
     """
     Runs tests on both **malicious** and **normal** traffic.
     """
 
-    # **🛑 Malicious Traffic Requests**
+    # **Malicious Traffic Requests**
     malicious_traffic = [
         {
             "src_ip": "192.168.1.150",
@@ -130,7 +130,7 @@ def main():
         }
     ]
 
-    # **✅ Good (Normal) Traffic Requests**
+    # **Good (Normal) Traffic Requests**
     normal_traffic = [
         {
             "src_ip": "192.168.1.50",
@@ -176,10 +176,10 @@ def main():
         }
     ]
 
-    logger.info("\n🔹 **Testing MALICIOUS traffic...**")
+    logger.info("\n**Testing MALICIOUS traffic...**")
     test_requests(malicious_traffic, expected_status="malicious")
 
-    logger.info("\n🔹 **Testing NORMAL traffic...**")
+    logger.info("\n**Testing NORMAL traffic...**")
     test_requests(normal_traffic, expected_status="normal")
 
 if __name__ == "__main__":

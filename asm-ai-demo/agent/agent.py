@@ -11,32 +11,32 @@ import numpy as np
 from datetime import datetime, timezone
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-# **🛠 Set up logging**
+# **Set up logging**
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# **📍 Paths**
+# **Paths**
 MODEL_PATH = "/data/model.pkl"
 ENCODERS_PATH = "/data/encoders.pkl"
 SCALER_PATH = "/data/scaler.pkl"
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
 
-# **📂 Ensure required directories exist**
+# **Ensure required directories exist**
 os.makedirs("/data", exist_ok=True)
 
-# **📥 Load Model, Encoders, and Scaler**
+# **Load Model, Encoders, and Scaler**
 if os.path.exists(MODEL_PATH) and os.path.exists(ENCODERS_PATH) and os.path.exists(SCALER_PATH):
-    logger.info("📥 Loading trained model, encoders, and scaler...")
-    model = joblib.load(MODEL_PATH)  # ✅ Load Ensemble Model
-    encoders = joblib.load(ENCODERS_PATH)  # ✅ Load Label Encoders
-    scaler = joblib.load(SCALER_PATH)  # ✅ Load Scaler
+    logger.info("Loading trained model, encoders, and scaler...")
+    model = joblib.load(MODEL_PATH)  # Load Ensemble Model
+    encoders = joblib.load(ENCODERS_PATH)  # Load Label Encoders
+    scaler = joblib.load(SCALER_PATH)  # Load Scaler
 else:
-    logger.error("❌ Model files missing! Ensure `train_model.py` has been executed.")
+    logger.error("Model files missing! Ensure `train_model.py` has been executed.")
     exit(1)
 
 app = Flask(__name__)
 
-# **🛡️ Update AI-WAF ConfigMap**
+# **Update AI-WAF ConfigMap**
 def update_configmap_in_k8s(ip):
     try:
         config.load_incluster_config()
@@ -52,7 +52,7 @@ def update_configmap_in_k8s(ip):
         # **Ensure correct AS3 structure**
         waf_security = as3_declaration.get("declaration", {}).get("Shared", {}).get("WAF_Security", {})
         if "malicious_ip_data_group" not in waf_security:
-            raise KeyError("❌ Missing 'malicious_ip_data_group' in AS3 declaration.")
+            raise KeyError("Missing 'malicious_ip_data_group' in AS3 declaration.")
 
         # **Check if the IP is already blacklisted**
         records = waf_security["malicious_ip_data_group"].get("records", [])
@@ -63,14 +63,14 @@ def update_configmap_in_k8s(ip):
             # **Update ConfigMap**
             configmap.data["template"] = json.dumps(as3_declaration, indent=4)
             v1.replace_namespaced_config_map(configmap_name, namespace, configmap)
-            logger.info(f"✅ ConfigMap updated: IP {ip} added to AI-WAF.")
+            logger.info(f"ConfigMap updated: IP {ip} added to AI-WAF.")
         else:
-            logger.info(f"ℹ️ IP {ip} already blacklisted.")
+            logger.info(f"IP {ip} already blacklisted.")
 
     except Exception as e:
-        logger.error(f"❌ Error updating ConfigMap: {e}")
+        logger.error(f"Error updating ConfigMap: {e}")
 
-# **🔍 Preprocess data before prediction**
+# **Preprocess data before prediction**
 def preprocess_data(data):
     features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
     df_input = pd.DataFrame([data])
@@ -91,7 +91,7 @@ def preprocess_data(data):
 
     return df_input[features]
 
-# **📊 Store data & trigger retraining**
+# **Store data & trigger retraining**
 def store_data_and_retrain(data, prediction):
     timestamp = datetime.now(timezone.utc).isoformat()
     data["timestamp"] = timestamp
@@ -107,7 +107,7 @@ def store_data_and_retrain(data, prediction):
     # **Trigger retraining dynamically**
     retrain_model()
 
-# **🧠 Retrain Model Dynamically**
+# **Retrain Model Dynamically**
 def retrain_model():
     try:
         df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines='skip')
@@ -136,10 +136,10 @@ def retrain_model():
         joblib.dump(model, MODEL_PATH)
         joblib.dump(label_encoders, ENCODERS_PATH)
         joblib.dump(scaler, SCALER_PATH)
-        logger.info("✅ Model retrained successfully!")
+        logger.info("Model retrained successfully!")
 
     except Exception as e:
-        logger.error(f"❌ Error during model retraining: {e}")
+        logger.error(f"Error during model retraining: {e}")
 
 # **🛡️ Adjust malicious classification threshold**
 MALICIOUS_THRESHOLD = 0.75
@@ -152,11 +152,11 @@ def analyze():
     # **Use probability-based prediction**
     probability = model.predict_proba(df_input)[0][1]  # Probability of being malicious
 
-    logger.info(f"🔍 Predicted probability of malicious: {probability:.4f}")
+    logger.info(f"Predicted probability of malicious: {probability:.4f}")
 
     # **Only block if probability is above threshold**
     if probability >= MALICIOUS_THRESHOLD:
-        logger.info(f"🚨 High-confidence blacklist: {data['src_ip']} ({probability:.4f})")
+        logger.info(f"High-confidence blacklist: {data['src_ip']} ({probability:.4f})")
         update_configmap_in_k8s(data["src_ip"])
         return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"]})
 
