@@ -9,6 +9,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.metrics import classification_report
+from imblearn.over_sampling import SMOTE  # ✅ Fix 2: Oversampling for better recall
 
 # **🛠 Set up logger**
 logging.basicConfig(level=logging.INFO)
@@ -56,29 +57,31 @@ for col in ["bot_signature", "violation"]:
     df[col] = le.fit_transform(df[col].astype(str))
     label_encoders[col] = le
 
-# **🚀 Balance dataset across `ip_reputation` categories**
-df_balanced = df.groupby("ip_reputation").apply(lambda x: x.sample(n=min(len(x), 2000), random_state=42))
-df_balanced = df_balanced.reset_index(drop=True)
-
 # **✅ Apply Feature Scaling**
 scaler = StandardScaler()
-df_balanced[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(
-    df_balanced[["bytes_sent", "bytes_received", "request_rate"]]
+df[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(
+    df[["bytes_sent", "bytes_received", "request_rate"]]
 )
 
 # **🚀 Train/Test Split**
-X = df_balanced[features]
-y = df_balanced[target]
+X = df[features]
+y = df[target]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
 logger.info(f"📊 Training on {X_train.shape[0]} samples, Testing on {X_test.shape[0]} samples.")
 
+# **✅ Apply SMOTE to Generate More Minority Class Samples**
+smote = SMOTE(random_state=42, sampling_strategy={1: 3000, 2: 3000})  # Fix 2: Balance Suspicious & Malicious classes
+X_train, y_train = smote.fit_resample(X_train, y_train)
+
+logger.info(f"✅ Applied SMOTE: New Training Size = {X_train.shape[0]} samples")
+
 # **🚀 Hyperparameter Tuning for RandomForest**
-rf_model = RandomForestClassifier(class_weight="balanced", random_state=42)
+rf_model = RandomForestClassifier(class_weight={0: 1, 1: 2, 2: 2}, random_state=42)  # Fix 1: Increase weight of difficult classes
 rf_params = {
-    "n_estimators": [100, 150],
-    "max_depth": [7, 12],
-    "min_samples_split": [10, 20],
+    "n_estimators": [150, 200],
+    "max_depth": [10, 12],  # ✅ Fix 3: Allow deeper decision paths
+    "min_samples_split": [20, 25],  # ✅ Fix 3: Increase to reduce overfitting
     "min_samples_leaf": [5, 10]
 }
 rf_grid = GridSearchCV(rf_model, rf_params, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42), scoring="accuracy", n_jobs=-1)
@@ -90,13 +93,14 @@ logger.info(f"✅ Best RandomForest Params: {rf_grid.best_params_}")
 # **🚀 Train XGBoost Model (Regularized)**
 xgb_model = XGBClassifier(
     use_label_encoder=False, eval_metric="logloss",
-    max_depth=6, min_child_weight=4, gamma=0.1, learning_rate=0.05
+    scale_pos_weight=len(y_train) / sum(y_train == 2),  # Adjusting for class imbalance
+    max_depth=8, min_child_weight=4, gamma=0.1, learning_rate=0.05
 )
 xgb_model.fit(X_train, y_train)
 
 # **🚀 Train Logistic Regression (ElasticNet Regularization)**
 log_reg = LogisticRegression(
-    C=0.1, class_weight="balanced", max_iter=500, solver="saga", penalty="elasticnet", l1_ratio=0.5
+    C=0.1, class_weight={0: 1, 1: 2, 2: 2}, max_iter=500, solver="saga", penalty="elasticnet", l1_ratio=0.5
 )
 log_reg.fit(X_train, y_train)
 
