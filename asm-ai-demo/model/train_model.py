@@ -42,7 +42,7 @@ if missing_columns:
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good", "severity": "Low"}, inplace=True)
 df["prediction"] = df["prediction"].astype(int)
 
-# **🔹 Encode categorical variables before correlation analysis**
+# **🔹 Encode categorical variables**
 label_encoders = {}
 for col in ["violation", "ip_reputation", "bot_signature", "severity"]:
     le = LabelEncoder()
@@ -53,14 +53,19 @@ for col in ["violation", "ip_reputation", "bot_signature", "severity"]:
 df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Fix: Remove string fields
 
 # **📊 Feature Correlation**
-correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
-logger.info(f"📊 Feature Correlation:\n{correlation}")
+try:
+    correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
+    logger.info(f"📊 Feature Correlation:\n{correlation}")
+    
+    # **🛑 Drop Highly Correlated Features (Threshold > 0.95)**
+    drop_features = correlation[correlation > 0.95].index.tolist()
+    drop_features.remove("prediction")  # Keep prediction
+    logger.info(f"🛑 Dropping highly correlated features: {drop_features}")
+    df.drop(columns=drop_features, inplace=True)
 
-# **🛑 Drop Highly Correlated Features (Threshold > 0.95)**
-drop_features = correlation[correlation > 0.95].index.tolist()
-drop_features.remove("prediction")  # Keep prediction
-logger.info(f"🛑 Dropping highly correlated features: {drop_features}")
-df.drop(columns=drop_features, inplace=True)
+except Exception as e:
+    logger.error(f"❌ Correlation computation failed: {e}")
+    exit(1)
 
 # **🛡 Balance dataset using Class Weights**
 class_weights = dict(Counter(df["prediction"]))
