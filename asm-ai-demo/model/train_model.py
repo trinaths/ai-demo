@@ -51,7 +51,11 @@ df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Go
 df["prediction"] = df["prediction"].astype(int)
 
 # **📊 Feature Correlation**
-correlation = df.corr()["prediction"].abs().sort_values(ascending=False)
+# Exclude non-numeric columns
+df_numeric = df.select_dtypes(include=[np.number])
+
+# Compute correlation on numeric features only
+correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
 logger.info(f"📊 Feature Correlation:\n{correlation}")
 
 # **🛑 Drop highly correlated features (Above 0.9 correlation)**
