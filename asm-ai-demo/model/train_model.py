@@ -88,7 +88,7 @@ if X.shape[0] == 0:
 
 # **🚀 Apply StandardScaler**
 scaler = StandardScaler()
-X[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
+X.loc[:, ["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
 
 # **🚀 Train/Test Split**
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
