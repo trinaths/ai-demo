@@ -42,6 +42,13 @@ if missing_columns:
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 df["prediction"] = df["prediction"].astype(int)
 
+# **🔹 Encode categorical variables before correlation analysis**
+label_encoders = {}
+for col in ["violation", "ip_reputation", "bot_signature"]:
+    le = LabelEncoder()
+    df[col] = le.fit_transform(df[col].astype(str))
+    label_encoders[col] = le
+
 # **🛑 Drop non-numeric columns before correlation**
 df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Fix: Remove string fields
 
@@ -59,13 +66,6 @@ df.drop(columns=drop_features, inplace=True)
 class_weights = dict(Counter(df["prediction"]))
 max_class = max(class_weights.values())
 class_weights = {k: max_class / v for k, v in class_weights.items()}
-
-# **🔹 Encode categorical variables**
-label_encoders = {}
-for col in ["ip_reputation", "bot_signature", "violation"]:
-    le = LabelEncoder()
-    df[col] = le.fit_transform(df[col].astype(str))
-    label_encoders[col] = le
 
 # **📊 Feature & Target Selection**
 features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
