@@ -11,7 +11,7 @@ from sklearn.metrics import classification_report
 from collections import Counter
 
 # **🛠 Set up Logging**
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # **📍 Paths**
@@ -29,7 +29,7 @@ df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 
 # **🚨 Validate required columns**
 required_columns = [
-    "response_code", "bytes_sent", "bytes_received", "request_rate",
+    "timestamp", "src_ip", "response_code", "bytes_sent", "bytes_received", "request_rate",
     "ip_reputation", "bot_signature", "violation", "prediction"
 ]
 missing_columns = [col for col in required_columns if col not in df.columns]
@@ -42,8 +42,11 @@ if missing_columns:
 df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
 df["prediction"] = df["prediction"].astype(int)
 
+# **🛑 Drop non-numeric columns before correlation**
+df_numeric = df.drop(columns=["timestamp", "src_ip"])  # ✅ Fix: Remove non-numeric fields
+
 # **📊 Feature Correlation**
-correlation = df.corr()["prediction"].abs().sort_values(ascending=False)
+correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
 logger.info(f"📊 Feature Correlation:\n{correlation}")
 
 # **🛑 Drop Highly Correlated Features (Threshold > 0.95)**
