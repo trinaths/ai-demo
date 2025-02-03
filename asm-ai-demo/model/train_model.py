@@ -70,6 +70,14 @@ try:
     logger.info(f"🛑 Dropping highly correlated features: {drop_features}")
     df.drop(columns=drop_features, inplace=True)
 
+    # **✅ Remove dropped features from the feature list**
+    features = [
+        "bytes_sent", "bytes_received", "request_rate", 
+        "ip_reputation", "bot_signature", "violation", "severity"
+    ]
+    features = [f for f in features if f not in drop_features]  # ✅ Exclude dropped features
+    logger.info(f"✅ Updated feature list: {features}")
+
 except Exception as e:
     logger.error(f"❌ Correlation computation failed: {e}")
     exit(1)
@@ -80,14 +88,6 @@ max_class = max(class_weights.values())
 class_weights = {k: max_class / v for k, v in class_weights.items()}
 
 # **📊 Feature & Target Selection**
-features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "severity"]
-
-# **✅ Ensure all selected features exist in dataset**
-missing_features = [col for col in features if col not in df.columns]
-if missing_features:
-    logger.error(f"❌ Missing features: {', '.join(missing_features)}")
-    exit(1)
-
 X = df[features]
 y = df["prediction"]
 
