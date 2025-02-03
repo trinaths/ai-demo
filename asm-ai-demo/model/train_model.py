@@ -27,18 +27,16 @@ os.makedirs("/data", exist_ok=True)
 logger.info("📥 Loading dataset for training...")
 df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 
-# **🚨 Validate required columns**
-required_columns = [
-    "timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", 
-    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "prediction"
-]
-
 # **✅ Ensure "severity" column exists**
 if "severity" not in df.columns:
     logger.warning("⚠️ 'severity' column missing. Assigning default value: 'Low'.")
     df["severity"] = "Low"
 
-required_columns.append("severity")  # Add severity to required columns
+# **🚨 Validate required columns**
+required_columns = [
+    "timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent",
+    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "severity", "prediction"
+]
 
 missing_columns = [col for col in required_columns if col not in df.columns]
 if missing_columns:
@@ -83,9 +81,13 @@ except Exception as e:
     exit(1)
 
 # **🛡 Balance dataset using Class Weights**
-class_weights = dict(Counter(df["prediction"]))
-max_class = max(class_weights.values())
-class_weights = {k: max_class / v for k, v in class_weights.items()}
+class_counts = Counter(df["prediction"])
+logger.info(f"📊 Class Distribution: {class_counts}")
+
+if len(class_counts) == 2:  # ✅ Binary Classification
+    class_weights = class_counts[0] / class_counts[1]  # ✅ Use `scale_pos_weight`
+else:
+    class_weights = None  # ✅ Multiclass: Don't use `scale_pos_weight`
 
 # **📊 Feature & Target Selection**
 X = df[features]
@@ -93,7 +95,7 @@ y = df["prediction"]
 
 # **🚀 Standardize Numeric Features**
 scaler = StandardScaler()
-X[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
+X.loc[:, ["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
 
 # **🚀 Train/Test Split**
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
@@ -107,13 +109,17 @@ rf_params = {
     "min_samples_split": [5, 20],
     "min_samples_leaf": [2, 5],
 }
-rf_grid = GridSearchCV(RandomForestClassifier(class_weight=class_weights, random_state=42), rf_params, cv=3)
+rf_grid = GridSearchCV(RandomForestClassifier(random_state=42), rf_params, cv=3)
 rf_grid.fit(X_train, y_train)
 best_rf = rf_grid.best_estimator_
 logger.info(f"✅ Best RandomForest Params: {rf_grid.best_params_}")
 
 # **✅ Train XGBoost Model**
-xgb_model = XGBClassifier(use_label_encoder=False, eval_metric="mlogloss", scale_pos_weight=class_weights)
+xgb_model = XGBClassifier(
+    use_label_encoder=False,
+    eval_metric="mlogloss",
+    scale_pos_weight=class_weights if class_weights else 1.0  # ✅ Fix XGBoost Error
+)
 xgb_model.fit(X_train, y_train)
 
 # **✅ Train Ensemble Model**
