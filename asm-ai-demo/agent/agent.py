@@ -9,8 +9,9 @@ import os
 import logging
 import numpy as np
 from datetime import datetime, timezone
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-# **🛠 Set up Logging**
+# **🛠 Set up logging**
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -20,17 +21,17 @@ ENCODERS_PATH = "/data/encoders.pkl"
 SCALER_PATH = "/data/scaler.pkl"
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
 
-# **📂 Ensure directories exist**
+# **📂 Ensure required directories exist**
 os.makedirs("/data", exist_ok=True)
 
-# **📥 Load trained model, encoders, and scaler**
+# **📥 Load Model, Encoders, and Scaler**
 if os.path.exists(MODEL_PATH) and os.path.exists(ENCODERS_PATH) and os.path.exists(SCALER_PATH):
     logger.info("📥 Loading trained model, encoders, and scaler...")
-    model = joblib.load(MODEL_PATH)
-    encoders = joblib.load(ENCODERS_PATH)
-    scaler = joblib.load(SCALER_PATH)  # ✅ Load StandardScaler
+    model = joblib.load(MODEL_PATH)  # ✅ Load Ensemble Model
+    encoders = joblib.load(ENCODERS_PATH)  # ✅ Load Label Encoders
+    scaler = joblib.load(SCALER_PATH)  # ✅ Load Scaler
 else:
-    logger.error("❌ No trained model found. Run initial training first!")
+    logger.error("❌ Model files missing! Ensure `train_model.py` has been executed.")
     exit(1)
 
 app = Flask(__name__)
@@ -74,15 +75,19 @@ def preprocess_data(data):
     features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
     df_input = pd.DataFrame([data])
 
-    # **Handle categorical variables**
+    # **Handle unseen categories**
     for col in ["ip_reputation", "bot_signature", "violation"]:
         df_input[col] = df_input[col].fillna("Unknown").astype(str)
+
+        unseen_labels = set(df_input[col]) - set(encoders[col].classes_)
+        if unseen_labels:
+            logger.warning(f"🔍 New labels in {col}: {unseen_labels}. Expanding encoder.")
+            encoders[col].classes_ = np.append(encoders[col].classes_, list(unseen_labels))
+
         df_input[col] = encoders[col].transform(df_input[col])
 
-    # **Apply StandardScaler to numeric features**
-    df_input[["bytes_sent", "bytes_received", "request_rate"]] = scaler.transform(
-        df_input[["bytes_sent", "bytes_received", "request_rate"]]
-    )
+    # **Normalize numeric values using StandardScaler**
+    df_input[["bytes_sent", "bytes_received", "request_rate"]] = scaler.transform(df_input[["bytes_sent", "bytes_received", "request_rate"]])
 
     return df_input[features]
 
@@ -111,6 +116,7 @@ def retrain_model():
         if "prediction" not in df.columns:
             raise ValueError("Missing 'prediction' column in collected_traffic.csv")
 
+        # **Re-encode categorical variables**
         label_encoders = {}
         for col in ["ip_reputation", "bot_signature", "violation"]:
             le = LabelEncoder()
@@ -120,19 +126,23 @@ def retrain_model():
         X = df[["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]]
         y = df["prediction"]
 
+        # **Normalize numeric values using StandardScaler**
+        X[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
+
         # **Retrain model**
         model.fit(X, y)
 
         # **Save updated model & encoders**
         joblib.dump(model, MODEL_PATH)
         joblib.dump(label_encoders, ENCODERS_PATH)
+        joblib.dump(scaler, SCALER_PATH)
         logger.info("✅ Model retrained successfully!")
 
     except Exception as e:
         logger.error(f"❌ Error during model retraining: {e}")
 
 # **🛡️ Adjust malicious classification threshold**
-MALICIOUS_THRESHOLD = 0.8  # ✅ Probability threshold
+MALICIOUS_THRESHOLD = 0.75
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -140,19 +150,17 @@ def analyze():
     df_input = preprocess_data(data)
 
     # **Use probability-based prediction**
-    probabilities = model.predict_proba(df_input)[0]
-    predicted_class = np.argmax(probabilities)
-    confidence = probabilities[predicted_class]
+    probability = model.predict_proba(df_input)[0][1]  # Probability of being malicious
 
-    logger.info(f"🔍 Predicted class: {predicted_class} with confidence {confidence:.4f}")
+    logger.info(f"🔍 Predicted probability of malicious: {probability:.4f}")
 
     # **Only block if probability is above threshold**
-    if predicted_class == 1 and confidence >= MALICIOUS_THRESHOLD:
-        logger.info(f"🚨 High-confidence blacklist: {data['src_ip']} ({confidence:.4f})")
+    if probability >= MALICIOUS_THRESHOLD:
+        logger.info(f"🚨 High-confidence blacklist: {data['src_ip']} ({probability:.4f})")
         update_configmap_in_k8s(data["src_ip"])
-        return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"], "confidence": confidence})
+        return jsonify({"status": "malicious", "message": "IP added to AI-WAF", "src_ip": data["src_ip"]})
 
-    return jsonify({"status": "normal", "message": "Traffic is not malicious", "confidence": confidence})
+    return jsonify({"status": "normal", "message": "Traffic is not malicious", "confidence": probability})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
