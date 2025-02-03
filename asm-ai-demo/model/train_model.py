@@ -29,8 +29,8 @@ df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 
 # **🚨 Validate required columns**
 required_columns = [
-    "timestamp", "src_ip", "response_code", "bytes_sent", "bytes_received", "request_rate",
-    "ip_reputation", "bot_signature", "violation", "prediction"
+    "timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", 
+    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "prediction"
 ]
 missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -43,7 +43,7 @@ df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Go
 df["prediction"] = df["prediction"].astype(int)
 
 # **🛑 Drop non-numeric columns before correlation**
-df_numeric = df.drop(columns=["timestamp", "src_ip"])  # ✅ Fix: Remove non-numeric fields
+df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Fix: Remove string fields
 
 # **📊 Feature Correlation**
 correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
