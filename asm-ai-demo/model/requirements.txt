@@ -7,3 +7,4 @@ xgboost
 kubernetes
 requests
 pyyaml
+imbalanced-learn
