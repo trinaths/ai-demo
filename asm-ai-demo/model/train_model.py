@@ -30,10 +30,17 @@ df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 # **🚨 Validate required columns**
 required_columns = [
     "timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", 
-    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "severity", "prediction"
+    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "prediction"
 ]
-missing_columns = [col for col in required_columns if col not in df.columns]
 
+# **✅ Ensure "severity" column exists**
+if "severity" not in df.columns:
+    logger.warning("⚠️ 'severity' column missing. Assigning default value: 'Low'.")
+    df["severity"] = "Low"
+
+required_columns.append("severity")  # Add severity to required columns
+
+missing_columns = [col for col in required_columns if col not in df.columns]
 if missing_columns:
     logger.error(f"❌ Missing columns: {', '.join(missing_columns)}")
     exit(1)
@@ -46,11 +53,11 @@ df["prediction"] = df["prediction"].astype(int)
 label_encoders = {}
 for col in ["violation", "ip_reputation", "bot_signature", "severity"]:
     le = LabelEncoder()
-    df[col] = le.fit_transform(df[col].astype(str))  # ✅ Fix: Convert categorical values to numbers
+    df[col] = le.fit_transform(df[col].astype(str))  # ✅ Convert categorical values to numbers
     label_encoders[col] = le
 
 # **🛑 Drop non-numeric columns before correlation**
-df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Fix: Remove string fields
+df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Remove string fields
 
 # **📊 Feature Correlation**
 try:
@@ -74,10 +81,15 @@ class_weights = {k: max_class / v for k, v in class_weights.items()}
 
 # **📊 Feature & Target Selection**
 features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "severity"]
-target = "prediction"
+
+# **✅ Ensure all selected features exist in dataset**
+missing_features = [col for col in features if col not in df.columns]
+if missing_features:
+    logger.error(f"❌ Missing features: {', '.join(missing_features)}")
+    exit(1)
 
 X = df[features]
-y = df[target]
+y = df["prediction"]
 
 # **🚀 Standardize Numeric Features**
 scaler = StandardScaler()
