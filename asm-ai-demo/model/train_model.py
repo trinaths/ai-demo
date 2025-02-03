@@ -54,7 +54,7 @@ df_numeric = df.drop(columns=["timestamp", "src_ip", "request"])  # ✅ Fix: Rem
 
 # **📊 Feature Correlation**
 try:
-    correlation = df_numeric.corr()["prediction"].abs().sort_values(ascending=False)
+    correlation = df_numeric.corr(numeric_only=True)["prediction"].abs().sort_values(ascending=False)
     logger.info(f"📊 Feature Correlation:\n{correlation}")
     
     # **🛑 Drop Highly Correlated Features (Threshold > 0.95)**
