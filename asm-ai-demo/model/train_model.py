@@ -1,14 +1,14 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import classification_report
 import joblib
 import os
 import logging
 import numpy as np
 
-# **🛠 Set up logger**
+# **🛠 Set up logging**
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 DATA_STORAGE_PATH = "/data/collected_traffic.csv"
 MODEL_PATH = "/data/model.pkl"
 ENCODERS_PATH = "/data/encoders.pkl"
+SCALER_PATH = "/data/scaler.pkl"
 
 # **📂 Ensure directories exist**
 os.makedirs("/data", exist_ok=True)
@@ -74,7 +75,7 @@ for col in ["ip_reputation", "bot_signature", "violation"]:
     label_encoders[col] = le
 
 # **📊 Feature & Target Selection**
-features = ["response_code", "bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
+features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
 target = "prediction"
 
 X = df[features]
@@ -84,6 +85,10 @@ y = df[target]
 if X.shape[0] == 0:
     logger.error("❌ No valid samples available for training. Exiting.")
     exit(1)
+
+# **🚀 Apply StandardScaler**
+scaler = StandardScaler()
+X[["bytes_sent", "bytes_received", "request_rate"]] = scaler.fit_transform(X[["bytes_sent", "bytes_received", "request_rate"]])
 
 # **🚀 Train/Test Split**
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -99,11 +104,12 @@ model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 logger.info("📊 Model Evaluation Report:\n" + classification_report(y_test, y_pred))
 
-# **💾 Save Model & Encoders**
+# **💾 Save Model, Scaler & Encoders**
 try:
     joblib.dump(model, MODEL_PATH)
     joblib.dump(label_encoders, ENCODERS_PATH)
-    logger.info("✅ Model and encoders saved successfully!")
+    joblib.dump(scaler, SCALER_PATH)
+    logger.info("✅ Model, Scaler, and Encoders saved successfully!")
 except Exception as e:
     logger.error(f"❌ Error saving model: {e}")
     exit(1)
