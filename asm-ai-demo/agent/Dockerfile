@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     joblib \
     numpy \
-    kubernetes
+    kubernetes \
+    xgboost
 
 # Copy the agent service application code to the container
 COPY . /app/
