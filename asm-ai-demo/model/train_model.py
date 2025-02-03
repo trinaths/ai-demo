@@ -30,7 +30,7 @@ df = pd.read_csv(DATA_STORAGE_PATH, on_bad_lines="skip")
 # **🚨 Validate required columns**
 required_columns = [
     "timestamp", "src_ip", "request", "violation", "response_code", "bytes_sent", 
-    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "prediction"
+    "bytes_received", "request_rate", "ip_reputation", "bot_signature", "severity", "prediction"
 ]
 missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -39,14 +39,14 @@ if missing_columns:
     exit(1)
 
 # **🔍 Handle missing values**
-df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good"}, inplace=True)
+df.fillna({"violation": "None", "bot_signature": "Unknown", "ip_reputation": "Good", "severity": "Low"}, inplace=True)
 df["prediction"] = df["prediction"].astype(int)
 
 # **🔹 Encode categorical variables before correlation analysis**
 label_encoders = {}
-for col in ["violation", "ip_reputation", "bot_signature"]:
+for col in ["violation", "ip_reputation", "bot_signature", "severity"]:
     le = LabelEncoder()
-    df[col] = le.fit_transform(df[col].astype(str))
+    df[col] = le.fit_transform(df[col].astype(str))  # ✅ Fix: Convert categorical values to numbers
     label_encoders[col] = le
 
 # **🛑 Drop non-numeric columns before correlation**
@@ -68,7 +68,7 @@ max_class = max(class_weights.values())
 class_weights = {k: max_class / v for k, v in class_weights.items()}
 
 # **📊 Feature & Target Selection**
-features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation"]
+features = ["bytes_sent", "bytes_received", "request_rate", "ip_reputation", "bot_signature", "violation", "severity"]
 target = "prediction"
 
 X = df[features]
