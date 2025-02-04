@@ -7,7 +7,7 @@ This PoC proposes a self-learning AI-driven anomaly detection system that integr
 This innovative AI solution analyzes raw traffic logs, predicts malicious behaviour using machine learning models, and automatically updates F5 BIG-IP security policies via AS3 and CIS. 
 
 
-![architecture](https://github.com/trinaths/ai-demo/tree/main/asm-ai-demo/diagram.png)
+![architecture](https://github.com/trinaths/ai-demo/blob/main/asm-ai-demo/diagram.png)
 
 
 ### PoC Architecture
@@ -18,13 +18,13 @@ This innovative AI solution analyzes raw traffic logs, predicts malicious behavi
 * Data is collected from BIG-IP. Eg: F5 Telemetry logs.
 * AI Model preprocesses and feature classify the data. 
 * AI Agent receives traffic logs data via /analyze API.
-* * Preprocess incoming request data (converts categorical values, applies encoders). 
-* * Uses above trained model to predict if traffic is malicious.
-* * If malicious, update DataGroups in AS3 ConfigMap.
+  * Preprocess incoming request data (converts categorical values, applies encoders). 
+  * Uses above trained model to predict if traffic is malicious.
+  * If malicious, update DataGroups in AS3 ConfigMap.
 * CIS monitors AS3 ConfigMap changes and updates BIG-IP.
 * After request processing, AI Agent stores the request log into local dataset so the AI Model can periodically retrain the model using the updated dataset.
 * This helps is dynamic decision making when proper signatures are not in place to enforce WAF security.
 * The Re-train process improves system decision making by
-* * Learning new malicious attack patterns.
-* * Immediate blacklisting 
-* * Improve detection based on real-world traffic.
+  * Learning new malicious attack patterns.
+  * Immediate blacklisting 
+  * Improve detection based on real-world traffic.
