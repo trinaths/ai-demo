@@ -2,7 +2,7 @@
 
 This PoC demonstrates how BIG-IP can be enhanced with AI intelligence, using CIS as example.
 
-This PoC proposes a self-learning AI-driven anomaly detection system that integrates with F5 BIG-IP and F5 CIS to dynamically detect and mitigate threats.
+This proposes a self-learning AI-driven anomaly detection system that integrates with F5 BIG-IP and F5 CIS to dynamically detect and mitigate threats.
 
 This innovative AI solution analyzes raw traffic logs, predicts malicious behaviour using machine learning models, and automatically updates F5 BIG-IP security policies via AS3 and CIS. 
 
