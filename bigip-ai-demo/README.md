@@ -18,4 +18,4 @@ The key areas that BIG-IP need AI intelligence are as follows:
 
 * Ensure service resilience with AI-powered cluster maintenance.
 
-In this PoC we will use BIG-IP (Classic), AS3, CIS (BNK Agent), AI Intelligent Network Optimization agent. 
+In this PoC we will use BIG-IP (Classic), AS3, CIS, AI Intelligent Network Optimization agent. 
