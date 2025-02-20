@@ -25,14 +25,21 @@ spec:
         role: ai
     spec:
       securityContext:
-        fsGroup: 101
+          fsGroup: 101
+      seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ai-cluster-container
         image: nginx:stable
         securityContext:
-          runAsUser: 101  # Run as non-root user
+          runAsUser: 101  
           runAsGroup: 101
-          allowPrivilegeEscalation: false
+          runAsNonRoot: true  
+          capabilities:
+            drop: ["ALL"]  
+          allowPrivilegeEscalation: false  
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             cpu: "200m"
@@ -90,14 +97,21 @@ spec:
         role: internal
     spec:
       securityContext:
-        fsGroup: 101
+          fsGroup: 101
+      seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: eastwest-container
         image: nginx:stable
         securityContext:
           runAsUser: 101  # Run as non-root user
           runAsGroup: 101
-          allowPrivilegeEscalation: false
+          runAsNonRoot: true  
+          capabilities:
+            drop: ["ALL"]  
+          allowPrivilegeEscalation: false  
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             cpu: "100m"
@@ -215,14 +229,21 @@ spec:
         role: global
     spec:
       securityContext:
-        fsGroup: 101
+          fsGroup: 101
+      seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: multicluster-container
         image: nginx:stable
         securityContext:
           runAsUser: 101  # Run as non-root user
           runAsGroup: 101
-          allowPrivilegeEscalation: false
+          runAsNonRoot: true  
+          capabilities:
+            drop: ["ALL"]  
+          allowPrivilegeEscalation: false  
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             cpu: "150m"
@@ -284,14 +305,21 @@ spec:
         role: performance
     spec:
       securityContext:
-        fsGroup: 101  
+          fsGroup: 101
+      seccompProfile:
+          type: RuntimeDefault 
       containers:
       - name: lowlatency-container
         image: nginx:stable
         securityContext:
           runAsUser: 101  # Run as non-root user
           runAsGroup: 101
-          allowPrivilegeEscalation: false
+          runAsNonRoot: true  
+          capabilities:
+            drop: ["ALL"]  
+          allowPrivilegeEscalation: false  
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             cpu: "50m"
