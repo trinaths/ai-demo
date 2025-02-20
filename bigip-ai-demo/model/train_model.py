@@ -4,13 +4,16 @@ train_model.py
 
 Loads synthetic TS logs, assigns labels based on usecase thresholds,
 extracts features, trains supervised models (RandomForest for LTM, APM, SYSTEM, AFM)
-and an RL agent (Q-learning for ASM), and saves the models.
+and an RL agent (Q-learning for ASM), prints training accuracy, and saves the models.
 """
+
 import json
 import pickle
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 
+# Define the modules for which we train models.
 modules = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
 
 def convert_asm_attack(record):
@@ -91,6 +94,8 @@ def train_supervised(module, records):
     y = pd.DataFrame(records)["label"]
     clf = RandomForestClassifier(random_state=42, n_estimators=100)
     clf.fit(X, y)
+    accuracy = clf.score(X, y)
+    print(f"[{module}] Training Accuracy: {accuracy:.2f}")
     return clf
 
 def train_rl(records, alpha=0.1):
@@ -104,17 +109,19 @@ def train_rl(records, alpha=0.1):
         for a in actions:
             reward = 1 if a == optimal_action else 0
             q_table[state][a] += alpha * (reward - q_table[state][a])
+    print("[ASM] RL Agent training complete (Q-table updated).")
     return q_table
 
 def train_models(data):
     models = {}
     for module, records in data.items():
+        if not records:
+            print(f"No data for module {module}, skipping training.")
+            continue
         if module == "ASM":
             print(f"Training RL agent for module {module} on {len(records)} samples.")
             models[module] = train_rl(records)
         else:
-            if len(records) == 0:
-                continue
             print(f"Training supervised model for module {module} on {len(records)} samples.")
             models[module] = train_supervised(module, records)
     return models
