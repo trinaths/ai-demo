@@ -9,14 +9,18 @@ kind: ClusterRole
 metadata:
   name: ai-agent-scaler
 rules:
-  # Allow updating the scale subresource for deployments.
+  # Permissions for scaling deployments.
 - apiGroups: ["apps"]
   resources: ["deployments/scale"]
   verbs: ["get", "update", "patch"]
-  # Allow reading and updating ConfigMaps in any namespace.
+  # Permissions to update the AS3 ConfigMap.
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "update", "patch"]
+  # Permissions to get services.
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
