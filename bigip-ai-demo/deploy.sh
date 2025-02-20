@@ -22,7 +22,6 @@ cd ..
 
 # Build and push Agent Service image.
 cd agent
-docker build -t "$AGGREGATE_SERVICE_IMAGE" .  # (If needed, update image name)
 docker build -t "$AGENT_SERVICE_IMAGE" .
 docker push "$AGENT_SERVICE_IMAGE"
 cd ..
