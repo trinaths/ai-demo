@@ -19,6 +19,12 @@ data:
     }
 
 ---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bigip-demo
+--- 
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
@@ -476,11 +482,7 @@ spec:
     targetPort: 8080
   type: ClusterIP
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: bigip-demo
+
 ---
 apiVersion: v1
 kind: ServiceAccount
