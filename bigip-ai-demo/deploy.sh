@@ -34,11 +34,11 @@ cd ..
 
 echo "Applying Kubernetes manifests to namespace $NAMESPACE..."
 kubectl apply -f k8s/pvc.yaml --namespace "$NAMESPACE"
-kubectl apply -f k8s/agent_service-rbac.yaml --namespace "$NAMESPACE"
-kubectl apply -f k8s/model_service-deployment.yaml --namespace "$NAMESPACE"
-kubectl apply -f k8s/agent_service-deployment.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/agent-service-rbac.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/model-service-deployment.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/agent-service-deployment.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/sample-deployment-improved.yaml --namespace "$NAMESPACE"
-kubectl apply -f k8s/model-retrain-cron.yaml --namespace "$NAMESPACE"
+#kubectl apply -f k8s/model-retrain-cron.yaml --namespace "$NAMESPACE"
 
 echo "Deployment complete. Listing pods in namespace $NAMESPACE:"
 kubectl get pods --namespace "$NAMESPACE"
