@@ -32,6 +32,7 @@ spec:
         securityContext:
           runAsUser: 101  # Run as non-root user
           runAsGroup: 101
+          allowPrivilegeEscalation: false
         resources:
           requests:
             cpu: "200m"
@@ -88,9 +89,15 @@ spec:
         app: eastwest
         role: internal
     spec:
+      securityContext:
+        fsGroup: 101
       containers:
       - name: eastwest-container
         image: nginx:stable
+        securityContext:
+          runAsUser: 101  # Run as non-root user
+          runAsGroup: 101
+          allowPrivilegeEscalation: false
         resources:
           requests:
             cpu: "100m"
@@ -103,7 +110,15 @@ spec:
         volumeMounts:
         - name: nginx-client-temp
           mountPath: /var/cache/nginx/client_temp
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-tmp
+          mountPath: /tmp
       volumes:
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-tmp
+        emptyDir: {}
       - name: nginx-client-temp
         emptyDir: {}
 ---
@@ -199,9 +214,15 @@ spec:
         app: multicluster
         role: global
     spec:
+      securityContext:
+        fsGroup: 101
       containers:
       - name: multicluster-container
         image: nginx:stable
+        securityContext:
+          runAsUser: 101  # Run as non-root user
+          runAsGroup: 101
+          allowPrivilegeEscalation: false
         resources:
           requests:
             cpu: "150m"
@@ -211,8 +232,20 @@ spec:
             memory: "400Mi"
         ports:
         - containerPort: 80
-        # Optional: mount a volume if needed for writeable directories.
-      # volumes: []
+        volumeMounts:
+        - name: nginx-client-temp
+          mountPath: /var/cache/nginx/client_temp
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-tmp
+          mountPath: /tmp
+      volumes:
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-tmp
+        emptyDir: {}
+      - name: nginx-client-temp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -250,9 +283,15 @@ spec:
         app: lowlatency
         role: performance
     spec:
+      securityContext:
+        fsGroup: 101  
       containers:
       - name: lowlatency-container
         image: nginx:stable
+        securityContext:
+          runAsUser: 101  # Run as non-root user
+          runAsGroup: 101
+          allowPrivilegeEscalation: false
         resources:
           requests:
             cpu: "50m"
@@ -265,7 +304,15 @@ spec:
         volumeMounts:
         - name: nginx-client-temp
           mountPath: /var/cache/nginx/client_temp
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-tmp
+          mountPath: /tmp
       volumes:
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-tmp
+        emptyDir: {}
       - name: nginx-client-temp
         emptyDir: {}
 ---
