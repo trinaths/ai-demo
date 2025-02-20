@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+validator.py
+
+A unified script that generates synthetic TS logs for a given usecase and module,
+and sends the log to the Agent Service.
+Usage: python validator.py <usecase_number(1-8)> <module>
+Valid modules: LTM, APM, ASM, SYSTEM, AFM.
+"""
 import json
 import random
 import sys
@@ -15,30 +23,36 @@ def generate_log(usecase, module):
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "deviceName": f"bigip-{usecase}",
         "tenant": random.choice(["Common", "Tenant_A", "Tenant_B"]),
-        "cluster": "Common",
+        "cluster": "bigip-demo",
         "usecase": usecase,
         "module": module,
         "eventType": module.lower() + "_request"
     }
     if module == "LTM":
-        log["virtualServerName"] = "/Common/app.app/app_vs"
-        log["poolName"] = "/Common/app.app/app_pool"
-        log["throughputPerformance"] = round(random.uniform(0.0, 1.0), 3)
-        log["cryptoLoad"] = round(random.uniform(0.0, 1.0), 3)
-        log["latency"] = round(random.uniform(0.01, 0.3), 3)
-        log["jitter"] = round(random.uniform(0.0, 0.05), 3)
-        log["packetLoss"] = round(random.uniform(0.0, 0.05), 3)
+        log.update({
+            "virtualServerName": "/Common/app.app/app_vs",
+            "poolName": "/Common/app.app/app_pool",
+            "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
+            "cryptoLoad": round(random.uniform(0.0, 1.0), 3),
+            "latency": round(random.uniform(0.01, 0.3), 3),
+            "jitter": round(random.uniform(0.0, 0.05), 3),
+            "packetLoss": round(random.uniform(0.0, 0.05), 3)
+        })
     if module == "APM":
         log["system.connectionsPerformance"] = round(random.uniform(0.0, 1.0), 3)
     if module == "ASM":
-        log["throughputPerformance"] = round(random.uniform(0.0, 1.0), 3)
-        log["asmAttackSignatures"] = random.choice(["SQL_Injection", "XSS", "None"])
+        log.update({
+            "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
+            "asmAttackSignatures": random.choice(["SQL_Injection", "XSS", "None"])
+        })
     if module == "SYSTEM":
-        log["cpu"] = round(random.uniform(0.0, 100.0), 1)
-        log["memory"] = round(random.uniform(0.0, 100.0), 1)
-        log["tmmCpu"] = round(random.uniform(0.0, 1.0), 3)
-        log["throughputPerformance"] = round(random.uniform(0.0, 1.0), 3)
-        log["system.connectionsPerformance"] = round(random.uniform(0.0, 1.0), 3)
+        log.update({
+            "cpu": round(random.uniform(0.0, 100.0), 1),
+            "memory": round(random.uniform(0.0, 100.0), 1),
+            "tmmCpu": round(random.uniform(0.0, 1.0), 3),
+            "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
+            "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
+        })
     if module == "AFM":
         log.update({
             "acl_policy_name": "/Common/app",
@@ -72,16 +86,19 @@ def generate_log(usecase, module):
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
             "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
         })
-    log["clientAddress"] = random_ip()
-    log["clientPort"] = random.randint(1024, 65535)
-    log["serverAddress"] = random_ip()
-    log["serverPort"] = str(random.randint(80, 443))
-    log["protocol"] = random.choice(["HTTP", "HTTPS", "TCP"])
-    log["httpMethod"] = random.choice(["GET", "POST"])
-    log["httpUri"] = random.choice(["/", "/login"])
-    log["httpStatus"] = random.choice([200, 404, 500])
-    log["requestBytes"] = random.randint(500, 2000)
-    log["responseBytes"] = random.randint(1000, 5000)
+    # Common fields.
+    log.update({
+        "clientAddress": random_ip(),
+        "clientPort": random.randint(1024, 65535),
+        "serverAddress": random_ip(),
+        "serverPort": str(random.randint(80, 443)),
+        "protocol": random.choice(["HTTP", "HTTPS", "TCP"]),
+        "httpMethod": random.choice(["GET", "POST"]),
+        "httpUri": random.choice(["/", "/login"]),
+        "httpStatus": random.choice([200, 404, 500]),
+        "requestBytes": random.randint(500, 2000),
+        "responseBytes": random.randint(1000, 5000)
+    })
     return log
 
 def main():

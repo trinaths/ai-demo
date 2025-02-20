@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: model-pvc
-  namespace: default
+  namespace: bigip-demo
 spec:
   accessModes:
     - ReadWriteMany
@@ -14,7 +14,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: training-pvc
-  namespace: default
+  namespace: bigip-demo
 spec:
   accessModes:
     - ReadWriteMany

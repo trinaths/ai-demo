@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+app.py
+
+Flask application for the Model Service.
+Exposes two endpoints:
+  - /predict: Returns a prediction based on incoming TS logs.
+  - /retrain: Retrains (or fine-tunes) models using accumulated new logs.
+"""
 import json
 import os
 import pickle
@@ -62,10 +70,7 @@ def predict():
 @app.route("/retrain", methods=["POST"])
 def retrain():
     try:
-        # Load original training data
         data = load_data(ORIGINAL_TRAINING_DATA)
-        
-        # Load new training data accumulated from the Agent Service
         if os.path.exists(NEW_TRAINING_DATA):
             with open(NEW_TRAINING_DATA, "r") as f:
                 for line in f:
@@ -75,22 +80,14 @@ def retrain():
                         data[module].append(record)
                     else:
                         data[module] = [record]
-        
-        # Retrain (fine-tune) models using both original and new data
         new_models = train_models(data)
-        
-        # Save the updated models to persistent storage
         with open(MODEL_PATH, "wb") as f:
             pickle.dump(new_models, f)
-        
-        # Reload the models in memory
         global models
         models = new_models
-        
-        # Clear the new training data file once retraining is complete
+        # Clear new training data after retraining.
         open(NEW_TRAINING_DATA, "w").close()
-        
-        return jsonify({"status": "success", "message": "Models retrained and fine-tuned successfully."})
+        return jsonify({"status": "success", "message": "Models retrained successfully."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: agent-service
+  namespace: bigip-demo
+  labels:
+    app: agent-service
 spec:
   replicas: 1
   selector:
@@ -15,7 +18,7 @@ spec:
       serviceAccountName: ai-agent
       containers:
       - name: agent-service
-        image: agent-service:latest
+        image: quay.io/trinathsquay/agent-service:latest
         ports:
         - containerPort: 5001
         volumeMounts:
@@ -35,6 +38,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: agent-service
+  namespace: bigip-demo
 spec:
   type: NodePort
   selector:

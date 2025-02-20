@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""
+agent.py
+
+Agent Service that:
+1. Receives synthetic TS logs via its /process-log endpoint.
+2. Queries the Model Service for a prediction.
+3. Dynamically retrieves current endpoints from a target Kubernetes Service.
+4. Generates a usecase-specific AS3 JSON declaration.
+5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration,
+   so that BIG-IP is automatically updated.
+6. Scales a target deployment (if required).
+7. Appends processed logs for future retraining.
+"""
 import json
 import os
 import requests
@@ -7,22 +20,25 @@ from kubernetes import client, config
 
 app = Flask(__name__)
 
-# Model Service URL
+# Model Service URL.
 MODEL_SERVICE_URL = "http://localhost:5000/predict"
 
-# Target deployment & namespace for scaling
+# Target deployment & namespace for scaling.
 TARGET_DEPLOYMENT = "sample-deployment"
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
 
-# Environment variable for dynamic service endpoints
+# Kubernetes Service providing dynamic endpoints.
 TARGET_SERVICE = os.getenv("TARGET_SERVICE")
 if not TARGET_SERVICE:
     raise ValueError("TARGET_SERVICE environment variable must be set to a valid Kubernetes service name.")
 
-# Training data storage (shared PVC)
+# ConfigMap name that F5 CIS monitors for AS3 declarations.
+AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
+
+# Path for accumulating training data.
 TRAINING_DATA_PATH = "/app/training_data/accumulated_ts_logs.jsonl"
 
-# Load Kubernetes config
+# Load Kubernetes configuration.
 try:
     config.load_incluster_config()
 except Exception:
@@ -30,7 +46,7 @@ except Exception:
 
 def get_dynamic_endpoints(service_name, namespace):
     """
-    Query Kubernetes API to retrieve dynamic endpoints (pod IPs) for the target service.
+    Retrieve current pod IPs (endpoints) from the specified service.
     """
     v1 = client.CoreV1Api()
     endpoints = v1.read_namespaced_endpoints(service_name, namespace)
@@ -44,24 +60,24 @@ def get_dynamic_endpoints(service_name, namespace):
 
 def update_deployment_scale(prediction):
     """
-    Use Kubernetes API to update the replica count of the target deployment based on the prediction.
+    Scale the target deployment based on the prediction.
     """
     api_instance = client.AppsV1Api()
     scale_obj = api_instance.read_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE)
     current_replicas = scale_obj.status.replicas
     new_replicas = current_replicas
-    if prediction == "scale_up":
+    if prediction in ["scale_up"]:
         new_replicas = current_replicas + 1
-    elif prediction == "scale_down" and current_replicas > 1:
+    elif prediction in ["scale_down"] and current_replicas > 1:
         new_replicas = current_replicas - 1
     patch = {"spec": {"replicas": new_replicas}}
     api_instance.patch_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE, patch)
     print(f"Deployment '{TARGET_DEPLOYMENT}' scaled from {current_replicas} to {new_replicas}")
     return new_replicas
 
-def generate_base_as3(tenant, timestamp, dynamic_endpoints):
+def get_base_as3(tenant, timestamp, dynamic_endpoints):
     """
-    Returns the base AS3 payload structure that is common across use cases.
+    Build a base AS3 payload structure.
     """
     return {
         "class": "AS3",
@@ -84,57 +100,37 @@ def generate_base_as3(tenant, timestamp, dynamic_endpoints):
 
 def generate_as3_payload(ts_log, prediction, replica_count):
     """
-    Consolidates AS3 payload creation using the usecase field.
-    Updates the base payload with usecase-specific keys and values.
+    Create a usecase-specific AS3 payload.
     
-    For each usecase, the payload is updated as follows:
-    
-    - Usecase 1 (Crypto Offload):  
-      Uses a HTTPS service configuration with a "crypto_pool" and clientSSL settings to offload crypto operations.
+    Usecases (for this demo):
+      1. Traffic Management across AI Clusters  
+      2. AI East-West traffic  
+      3. Data Storage Traffic Management  
+      4. Multi-Cluster Networking  
+      5. Low Latency & High Throughput  
       
-    - Usecase 2 (Traffic Steering):  
-      Uses an HTTP service for steering traffic based on APM metrics.
-      
-    - Usecase 3 (SLA Enforcement):  
-      Similar to usecase 2 with a different label, enforcing SLAs.
-      
-    - Usecase 4 (Routing Update):  
-      Uses a HTTPS service with a "routing_pool" to update ingress/egress routing dynamically.
-      
-    - Usecase 5 (Auto-scale Services):  
-      Uses an HTTP service (ASM) to update service configuration when scaling is needed.
-      
-    - Usecase 6 (Service Discovery):  
-      Uses an HTTP service (ASM) with a pool remark indicating service discovery update.
-      
-    - Usecase 7 (Cluster Maintenance):  
-      Uses an HTTP service (ASM) for cluster maintenance updates.
-      
-    - Usecase 8 (Multi-layer Security Enforcement):  
-      Configures an AFM policy payload to block malicious traffic if the aggregated security index is high.
+    The payload is built on a common base and then updated according to the usecase.
     """
     usecase = ts_log.get("usecase")
     tenant = ts_log.get("tenant", "Tenant_Default")
     timestamp = ts_log.get("timestamp", "")
     
-    # Retrieve dynamic endpoints from the target service.
+    # Get current endpoints from the target service.
     dynamic_endpoints = get_dynamic_endpoints(TARGET_SERVICE, TARGET_NAMESPACE)
     if not dynamic_endpoints:
         raise RuntimeError(f"No endpoints found for service {TARGET_SERVICE} in namespace {TARGET_NAMESPACE}")
     
-    # Create base AS3 payload.
-    payload = generate_base_as3(tenant, timestamp, dynamic_endpoints)
+    payload = get_base_as3(tenant, timestamp, dynamic_endpoints)
     
-    # Usecase-specific adjustments:
     if usecase == 1:
-        # Usecase 1: Dynamic Crypto Offload
-        payload["declaration"]["id"] = f"{tenant}-crypto-{timestamp}"
-        payload["declaration"]["label"] = "Dynamic Crypto Offload"
+        # Usecase 1: Traffic Management across AI Clusters.
+        payload["declaration"]["id"] = f"{tenant}-traffic-mgmt-{timestamp}"
+        payload["declaration"]["label"] = "Traffic Management across AI Clusters"
         payload["declaration"]["Common"][tenant].update({
             "serviceHTTPS": {
                 "class": "Service_HTTPS",
                 "virtualAddresses": dynamic_endpoints,
-                "pool": "crypto_pool",
+                "pool": "ai_clusters_pool",
                 "sslProfileClient": "clientSSL"
             },
             "clientSSL": {
@@ -143,53 +139,53 @@ def generate_as3_payload(ts_log, prediction, replica_count):
                 "cert": "/Common/client.crt",
                 "key": "/Common/client.key"
             },
-            "crypto_pool": {
+            "ai_clusters_pool": {
                 "class": "Pool",
                 "members": [{"servicePort": 443, "serverAddresses": dynamic_endpoints}],
-                "remark": "Crypto offload applied based on high load"
+                "remark": "Routing traffic across AI clusters"
             }
         })
     elif usecase == 2:
-        # Usecase 2: Traffic Steering (APM)
-        payload["declaration"]["id"] = f"{tenant}-traffic-{timestamp}"
-        payload["declaration"]["label"] = "Traffic Steering Update"
+        # Usecase 2: AI East-West and RAG Workflows.
+        payload["declaration"]["id"] = f"{tenant}-eastwest-{timestamp}"
+        payload["declaration"]["label"] = "AI East-West traffic"
         payload["declaration"]["Common"][tenant].update({
             "serviceHTTP": {
                 "class": "Service_HTTP",
                 "virtualAddresses": dynamic_endpoints,
-                "pool": "apm_pool"
+                "pool": "eastwest_pool"
             },
-            "apm_pool": {
+            "eastwest_pool": {
                 "class": "Pool",
                 "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "Traffic steered based on load"
+                "remark": "Routing internal AI traffic"
             }
         })
     elif usecase == 3:
-        # Usecase 3: SLA Enforcement (APM)
-        payload["declaration"]["id"] = f"{tenant}-sla-{timestamp}"
-        payload["declaration"]["label"] = "SLA Enforcement Update"
+        # Usecase 3: Data Storage Traffic Management.
+        payload["declaration"]["id"] = f"{tenant}-storage-{timestamp}"
+        payload["declaration"]["label"] = "Data Storage Traffic Management"
         payload["declaration"]["Common"][tenant].update({
-            "serviceHTTP": {
-                "class": "Service_HTTP",
+            "serviceTCP": {
+                "class": "Service_TCP",
                 "virtualAddresses": dynamic_endpoints,
-                "pool": "apm_pool"
+                "pool": "storage_pool"
             },
-            "apm_pool": {
+            "storage_pool": {
                 "class": "Pool",
-                "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "SLA enforced based on connection performance"
+                "members": [{"servicePort": 8080, "serverAddresses": dynamic_endpoints}],
+                "remark": "Optimized routing to data storage endpoints"
             }
         })
     elif usecase == 4:
-        # Usecase 4: Dynamic Routing Update (LTM/System)
-        payload["declaration"]["id"] = f"{tenant}-routing-{timestamp}"
-        payload["declaration"]["label"] = "Dynamic Routing Update"
+        # Usecase 4: Multi-Cluster Networking.
+        payload["declaration"]["id"] = f"{tenant}-multicluster-{timestamp}"
+        payload["declaration"]["label"] = "Multi Cluster Networking"
         payload["declaration"]["Common"][tenant].update({
             "serviceHTTPS": {
                 "class": "Service_HTTPS",
                 "virtualAddresses": dynamic_endpoints,
-                "pool": "routing_pool",
+                "pool": "multicluster_pool",
                 "sslProfileClient": "clientSSL"
             },
             "clientSSL": {
@@ -198,69 +194,33 @@ def generate_as3_payload(ts_log, prediction, replica_count):
                 "cert": "/Common/client.crt",
                 "key": "/Common/client.key"
             },
-            "routing_pool": {
+            "multicluster_pool": {
                 "class": "Pool",
                 "members": [{"servicePort": 443, "serverAddresses": dynamic_endpoints}],
-                "remark": "Routing update applied for optimal ingress/egress"
+                "remark": "load balancing across clusters"
             }
         })
     elif usecase == 5:
-        # Usecase 5: Auto-scale Services (ASM)
-        payload["declaration"]["id"] = f"{tenant}-autoscale-{timestamp}"
-        payload["declaration"]["label"] = "Auto-scale Services Update"
+        # Usecase 5: Low Latency & High Throughput.
+        payload["declaration"]["id"] = f"{tenant}-lowlatency-{timestamp}"
+        payload["declaration"]["label"] = "Low Latency & High Throughput"
         payload["declaration"]["Common"][tenant].update({
-            "serviceHTTP": {
-                "class": "Service_HTTP",
+            "serviceHTTPS": {
+                "class": "Service_HTTPS",
                 "virtualAddresses": dynamic_endpoints,
-                "pool": "asm_pool"
+                "pool": "lowlatency_pool",
+                "sslProfileClient": "clientSSL"
             },
-            "asm_pool": {
-                "class": "Pool",
-                "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "Auto-scale configuration applied based on demand"
-            }
-        })
-    elif usecase == 6:
-        # Usecase 6: Service Discovery & Orchestration (ASM)
-        payload["declaration"]["id"] = f"{tenant}-service-discovery-{timestamp}"
-        payload["declaration"]["label"] = "Service Discovery Update"
-        payload["declaration"]["Common"][tenant].update({
-            "serviceHTTP": {
-                "class": "Service_HTTP",
-                "virtualAddresses": dynamic_endpoints,
-                "pool": "asm_pool"
+            "clientSSL": {
+                "class": "SSL_Profile_Client",
+                "context": "clients",
+                "cert": "/Common/client.crt",
+                "key": "/Common/client.key"
             },
-            "asm_pool": {
+            "lowlatency_pool": {
                 "class": "Pool",
-                "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "Service discovery update applied"
-            }
-        })
-    elif usecase == 7:
-        # Usecase 7: Cluster Maintenance (ASM)
-        payload["declaration"]["id"] = f"{tenant}-cluster-maintenance-{timestamp}"
-        payload["declaration"]["label"] = "Cluster Maintenance Update"
-        payload["declaration"]["Common"][tenant].update({
-            "serviceHTTP": {
-                "class": "Service_HTTP",
-                "virtualAddresses": dynamic_endpoints,
-                "pool": "asm_pool"
-            },
-            "asm_pool": {
-                "class": "Pool",
-                "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "Cluster maintenance configuration applied"
-            }
-        })
-    elif usecase == 8:
-        # Usecase 8: Multi-layer Security Enforcement (AFM)
-        payload["declaration"]["id"] = f"{tenant}-security-{timestamp}"
-        payload["declaration"]["label"] = "Multi-layer Security Enforcement"
-        payload["declaration"]["Common"][tenant].update({
-            "afmPolicy": {
-                "class": "AFM_Policy",
-                "remark": "Security enforcement applied based on aggregated metrics",
-                "enabled": True if ts_log.get("afmThreatScore", 0) > 0.7 else False
+                "members": [{"servicePort": 443, "serverAddresses": dynamic_endpoints}],
+                "remark": "Optimized for low latency and high throughput"
             }
         })
     else:
@@ -268,7 +228,26 @@ def generate_as3_payload(ts_log, prediction, replica_count):
     
     return payload
 
+def update_as3_configmap(as3_payload):
+    """
+    Update the AS3 ConfigMap (AS3_CONFIGMAP) in the TARGET_NAMESPACE with the new AS3 declaration.
+    F5 CIS monitors this ConfigMap and pushes the update to BIG-IP.
+    """
+    configmap_name = AS3_CONFIGMAP
+    v1 = client.CoreV1Api()
+    patch_body = {"data": {"as3-declaration": json.dumps(as3_payload)}}
+    try:
+        v1.patch_namespaced_config_map(name=configmap_name, namespace=TARGET_NAMESPACE, body=patch_body)
+        print(f"ConfigMap '{configmap_name}' updated with new AS3 declaration.")
+    except Exception as e:
+        print(f"Error updating ConfigMap '{configmap_name}': {e}")
+        raise
+
 def append_training_data(ts_log, prediction):
+    """
+    Append the processed TS log (with its predicted label) to the training file.
+    This data will later be used for model retraining.
+    """
     ts_log["predicted_label"] = prediction
     try:
         os.makedirs(os.path.dirname(TRAINING_DATA_PATH), exist_ok=True)
@@ -284,6 +263,7 @@ def process_log():
         if not ts_log:
             return jsonify({"error": "No JSON payload received"}), 400
 
+        # Query the Model Service for a prediction.
         response = requests.post(MODEL_SERVICE_URL, json=ts_log)
         if response.status_code != 200:
             return jsonify({"error": "Model service error", "details": response.json()}), 500
@@ -291,17 +271,23 @@ def process_log():
         prediction = response.json().get("prediction", "no_change")
         print(f"Model prediction: {prediction}")
 
+        # If prediction indicates scaling, update the deployment.
         if prediction in ["scale_up", "scale_down"]:
             replica_count = update_deployment_scale(prediction)
         else:
             replica_count = "unchanged"
 
+        # Generate a usecase-specific AS3 payload.
         as3_payload = generate_as3_payload(ts_log, prediction, replica_count)
         print("Generated AS3 payload:")
         print(json.dumps(as3_payload, indent=2))
-        print("Simulated BIG-IP AS3 update completed.")
 
+        # Update the AS3 ConfigMap to trigger BIG-IP updates via F5 CIS.
+        update_as3_configmap(as3_payload)
+
+        # Append the processed log for retraining.
         append_training_data(ts_log, prediction)
+
         return jsonify({"status": "success", "prediction": prediction, "as3": as3_payload})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

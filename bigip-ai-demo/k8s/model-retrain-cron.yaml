@@ -2,11 +2,11 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: model-retrain-cron
+  namespace: bigip-demo
   labels:
     app: model-service
 spec:
-  # Run every 5 minutes (adjust as needed)
-  schedule: "*/5 * * * *"
+  schedule: "*/5 * * * *"  # Retrain every 5 minutes (adjust as needed)
   jobTemplate:
     spec:
       template:

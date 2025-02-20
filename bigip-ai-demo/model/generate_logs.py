@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
+"""
+generate_logs.py
+
+Generates synthetic TS logs for eight use cases using five modules:
+LTM, APM, ASM, SYSTEM, and AFM.
+These logs include realistic synthetic attributes (e.g., cryptoLoad, latency,
+throughput, threat scores) that mimic production telemetry.
+"""
 import json
 import random
 from datetime import datetime
 
-# Multi-tenancy: simulate different tenants.
+# Define sample tenants.
 tenants = ["Common", "Tenant_A", "Tenant_B"]
 
-# Map usecase numbers to modules.
-# Usecase 1: LTM & SYSTEM (Crypto Offload)
-# Usecase 2: APM (Traffic Steering)
-# Usecase 3: APM (SLA Enforcement)
-# Usecase 4: LTM & SYSTEM (Routing Update)
-# Usecase 5: ASM (Auto-scale Services)
-# Usecase 6: ASM (Service Discovery & Orchestration)
-# Usecase 7: ASM (Cluster Maintenance)
-# Usecase 8: AFM (Multi-layer Security Enforcement)
+# Mapping of usecase to modules:
+# 1: LTM & SYSTEM (Crypto Offload)
+# 2: APM (Traffic Steering)
+# 3: APM (SLA Enforcement)
+# 4: LTM & SYSTEM (Routing Update)
+# 5: ASM (Auto-scale Services)
+# 6: ASM (Service Discovery & Orchestration)
+# 7: ASM (Cluster Maintenance)
+# 8: AFM (Multi-layer Security Enforcement)
 usecase_module_mapping = {
     1: ["LTM", "SYSTEM"],
     2: ["APM"],
@@ -30,6 +38,7 @@ def random_ip():
     return ".".join(str(random.randint(1, 254)) for _ in range(4))
 
 def generate_system_metrics():
+    # Simulate system metrics used by LTM and SYSTEM logs.
     tmmCpu = round(random.uniform(0.0, 1.0), 3)
     tmmTraffic = round(random.uniform(0.0, 1.0), 3)
     cryptoLoad = round(0.6 * tmmCpu + 0.4 * tmmTraffic, 3)
@@ -39,6 +48,7 @@ def generate_system_metrics():
     return tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss
 
 def generate_system_log():
+    # Generate a SYSTEM log carrying overall performance metrics.
     return {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "tenant": random.choice(tenants),
@@ -51,6 +61,7 @@ def generate_system_log():
     }
 
 def generate_afm_log():
+    # Generate an AFM log with multi-layer security fields.
     return {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "tenant": random.choice(tenants),
@@ -81,7 +92,6 @@ def generate_afm_log():
         "vlan": "/Common/external",
         "application": "app.app",
         "telemetryEventCategory": "AFM",
-        # Multi-layer security fields:
         "afmThreatScore": round(random.uniform(0.0, 1.0), 3),
         "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
         "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0,
@@ -96,18 +106,16 @@ def generate_base_log(usecase, module):
         return generate_afm_log()
 
     tenant = random.choice(tenants)
-    log = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "tenant": tenant,
-    }
+    log = {"timestamp": datetime.utcnow().isoformat() + "Z", "tenant": tenant}
     if usecase in [1, 4]:
+        # LTM logs used for crypto offload and routing.
         tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss = generate_system_metrics()
-        log["cryptoLoad"] = cryptoLoad
-        log["latency"] = latency
-        log["jitter"] = jitter
-        log["packetLoss"] = packetLoss
-        log["throughputPerformance"] = round(random.uniform(0.0, 1.0), 3)
         log.update({
+            "cryptoLoad": cryptoLoad,
+            "latency": latency,
+            "jitter": jitter,
+            "packetLoss": packetLoss,
+            "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "event_source": "request_logging",
             "event_timestamp": datetime.utcnow().isoformat() + "Z",
             "hostname": "ltm-host",
@@ -120,6 +128,7 @@ def generate_base_log(usecase, module):
             "telemetryEventCategory": "LTM"
         })
     elif usecase in [2, 3]:
+        # APM logs for traffic steering and SLA enforcement.
         log.update({
             "hostname": "apm-host",
             "errdefs_msgno": "01490102:5:",
@@ -132,6 +141,7 @@ def generate_base_log(usecase, module):
             "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
         })
     elif usecase in [5, 6, 7]:
+        # ASM logs for scaling, service discovery, or maintenance.
         log.update({
             "hostname": "asm-host",
             "management_ip_address": "10.0.1.4",

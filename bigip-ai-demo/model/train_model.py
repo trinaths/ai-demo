@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+train_model.py
+
+Loads synthetic TS logs, assigns labels based on usecase thresholds,
+extracts features, trains supervised models (RandomForest for LTM, APM, SYSTEM, AFM)
+and an RL agent (Q-learning for ASM), and saves the models.
+"""
 import json
 import pickle
 import pandas as pd

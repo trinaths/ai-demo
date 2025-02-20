@@ -1,21 +1,306 @@
+# Namespace Definition.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bigip-demo
+---
+# AI Cluster Deployment - simulating external AI workload traffic.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sample-deployment
+  name: ai-cluster
+  namespace: bigip-demo
   labels:
-    app: sample-app
+    app: ai-cluster
+    role: ai
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-cluster
+  template:
+    metadata:
+      labels:
+        app: ai-cluster
+        role: ai
+    spec:
+      containers:
+      - name: ai-cluster-container
+        image: nginx:stable
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-cluster-service
+  namespace: bigip-demo
+  labels:
+    app: ai-cluster
+spec:
+  selector:
+    app: ai-cluster
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# East-West Deployment - for internal AI/RAG workflows.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eastwest-app
+  namespace: bigip-demo
+  labels:
+    app: eastwest
+    role: internal
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: sample-app
+      app: eastwest
   template:
     metadata:
       labels:
-        app: sample-app
+        app: eastwest
+        role: internal
     spec:
       containers:
-      - name: sample-container
-        image: nginx:latest
+      - name: eastwest-container
+        image: nginx:stable
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"
         ports:
         - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eastwest-service
+  namespace: bigip-demo
+  labels:
+    app: eastwest
+spec:
+  selector:
+    app: eastwest
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# Storage Service Deployment - simulating data storage traffic.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-service
+  namespace: bigip-demo
+  labels:
+    app: storage-service
+    role: storage
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: storage-service
+  template:
+    metadata:
+      labels:
+        app: storage-service
+        role: storage
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        args:
+          - "server"
+          - "/data"
+        env:
+          - name: MINIO_ACCESS_KEY
+            value: "minioaccess"
+          - name: MINIO_SECRET_KEY
+            value: "miniosecret"
+        ports:
+        - containerPort: 9000
+        volumeMounts:
+        - name: storage-data
+          mountPath: /data
+      volumes:
+      - name: storage-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-service
+  namespace: bigip-demo
+  labels:
+    app: storage-service
+spec:
+  selector:
+    app: storage-service
+  ports:
+  - name: http
+    port: 9000
+    targetPort: 9000
+  type: ClusterIP
+---
+# Multi-Cluster Networking Deployment - simulating global load balancing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multicluster-service
+  namespace: bigip-demo
+  labels:
+    app: multicluster
+    role: global
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: multicluster
+  template:
+    metadata:
+      labels:
+        app: multicluster
+        role: global
+    spec:
+      containers:
+      - name: multicluster-container
+        image: nginx:stable
+        resources:
+          requests:
+            cpu: "150m"
+            memory: "200Mi"
+          limits:
+            cpu: "400m"
+            memory: "400Mi"
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: multicluster-service
+  namespace: bigip-demo
+  labels:
+    app: multicluster
+spec:
+  selector:
+    app: multicluster
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# Low Latency Deployment - optimized for high performance.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lowlatency-app
+  namespace: bigip-demo
+  labels:
+    app: lowlatency
+    role: performance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lowlatency
+  template:
+    metadata:
+      labels:
+        app: lowlatency
+        role: performance
+    spec:
+      containers:
+      - name: lowlatency-container
+        image: nginx:stable
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "150m"
+            memory: "128Mi"
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lowlatency-service
+  namespace: bigip-demo
+  labels:
+    app: lowlatency
+spec:
+  selector:
+    app: lowlatency
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# AI Workload Simulator - simulating AI inference traffic.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-workload-sim
+  namespace: bigip-demo
+  labels:
+    app: ai-workload
+    role: ai-simulator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-workload
+  template:
+    metadata:
+      labels:
+        app: ai-workload
+        role: ai-simulator
+    spec:
+      containers:
+      - name: ai-workload-sim-container
+        image: your-docker-registry/ai-workload-sim:latest
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-workload-service
+  namespace: bigip-demo
+  labels:
+    app: ai-workload
+spec:
+  selector:
+    app: ai-workload
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: model-service
+  namespace: bigip-demo
+  labels:
+    app: model-service
 spec:
   replicas: 1
   selector:
@@ -14,7 +17,7 @@ spec:
     spec:
       containers:
       - name: model-service
-        image: model-service:latest
+        image: your-docker-registry/model-service:latest
         ports:
         - containerPort: 5000
         volumeMounts:
@@ -34,6 +37,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: model-service
+  namespace: bigip-demo
 spec:
   type: NodePort
   selector:

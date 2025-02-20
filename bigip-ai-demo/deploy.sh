@@ -1,62 +1,45 @@
 #!/bin/bash
-# deploy.sh - Build Docker images and deploy the entire system to Kubernetes in a dedicated namespace
+# deploy.sh - Builds Docker images and deploys the entire demo environment.
 
-set -e  # Exit immediately if a command exits with a non-zero status.
+set -e
 
-# Variables (customize these as needed)
-DOCKER_REGISTRY="docker-registry"   
+DOCKER_REGISTRY="your-docker-registry"  # Update with your registry.
 NAMESPACE="bigip-demo"
 MODEL_SERVICE_IMAGE="$DOCKER_REGISTRY/model-service:latest"
 AGENT_SERVICE_IMAGE="$DOCKER_REGISTRY/agent-service:latest"
+AI_WORKLOAD_IMAGE="$DOCKER_REGISTRY/ai-workload-sim:latest"
 
-echo "Starting deployment process in namespace: $NAMESPACE"
+echo "Starting deployment in namespace: $NAMESPACE"
 
-# --- Create Namespace ---
-echo "Creating namespace '$NAMESPACE' if it doesn't exist..."
+# Create namespace.
 kubectl apply -f k8s/namespace.yaml
 
-# --- Build and push Model Service Docker image ---
-echo "Building Model Service Docker image..."
-cd model
+# Build and push Model Service image.
+cd model_service
 docker build -t "$MODEL_SERVICE_IMAGE" .
-echo "Pushing Model Service image to registry..."
 docker push "$MODEL_SERVICE_IMAGE"
 cd ..
 
-# --- Build and push Agent Service Docker image ---
-echo "Building Agent Service Docker image..."
-cd agent
+# Build and push Agent Service image.
+cd agent_service
+docker build -t "$AGGREGATE_SERVICE_IMAGE" .  # (If needed, update image name)
 docker build -t "$AGENT_SERVICE_IMAGE" .
-echo "Pushing Agent Service image to registry..."
 docker push "$AGENT_SERVICE_IMAGE"
 cd ..
 
-# --- Deploy Kubernetes manifests in the target namespace ---
+# Build and push AI Workload Simulator image.
+cd ai_workload_simulator
+docker build -t "$AI_WORKLOAD_IMAGE" .
+docker push "$AI_WORKLOAD_IMAGE"
+cd ..
 
-echo "Applying Kubernetes manifests to namespace '$NAMESPACE'..."
-
-# Apply PVCs (model and training storage)
+echo "Applying Kubernetes manifests to namespace $NAMESPACE..."
 kubectl apply -f k8s/pvc.yaml --namespace "$NAMESPACE"
-
-# Apply RBAC for the Agent Service
-kubectl apply -f k8s/agent-service-rbac.yaml --namespace "$NAMESPACE"
-
-# Deploy the Model Service
-kubectl apply -f k8s/model-service-deployment.yaml --namespace "$NAMESPACE"
-
-# Deploy the Agent Service
-kubectl apply -f k8s/agent-service-deployment.yaml --namespace "$NAMESPACE"
-
-# Deploy the sample workload (to be scaled by the agent)
-kubectl apply -f k8s/sample-deployment.yaml --namespace "$NAMESPACE"
-
-# Deploy the retraining CronJob
+kubectl apply -f k8s/agent_service-rbac.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/model_service-deployment.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/agent_service-deployment.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/sample-deployment-improved.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/model-retrain-cron.yaml --namespace "$NAMESPACE"
 
-echo "Kubernetes manifests applied successfully in namespace '$NAMESPACE'."
-echo "Checking deployment status in namespace '$NAMESPACE'..."
-
-# List all pods in the namespace to verify deployment
+echo "Deployment complete. Listing pods in namespace $NAMESPACE:"
 kubectl get pods --namespace "$NAMESPACE"
-
-echo "Deployment complete."
