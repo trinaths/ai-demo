@@ -15,13 +15,13 @@ echo "Starting deployment in namespace: $NAMESPACE"
 kubectl apply -f k8s/namespace.yaml
 
 # Build and push Model Service image.
-cd model_service
+cd model
 docker build -t "$MODEL_SERVICE_IMAGE" .
 docker push "$MODEL_SERVICE_IMAGE"
 cd ..
 
 # Build and push Agent Service image.
-cd agent_service
+cd agent
 docker build -t "$AGGREGATE_SERVICE_IMAGE" .  # (If needed, update image name)
 docker build -t "$AGENT_SERVICE_IMAGE" .
 docker push "$AGENT_SERVICE_IMAGE"
