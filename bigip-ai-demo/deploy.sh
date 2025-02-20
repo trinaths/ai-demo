@@ -6,7 +6,7 @@ echo "Starting deployment in namespace: $NAMESPACE"
 # Create namespace.
 kubectl apply -f k8s/namespace.yaml
 echo "Applying Kubernetes manifests to namespace $NAMESPACE..."
-kubectl apply -f k8s/pvc.yaml --namespace "$NAMESPACE"
+kubectl apply -f k8s/pvc.yaml
 kubectl apply -f k8s/agent-service-rbac.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/model-service-deployment.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/agent-service-deployment.yaml --namespace "$NAMESPACE"
