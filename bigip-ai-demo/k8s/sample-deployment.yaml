@@ -4,6 +4,51 @@ kind: Namespace
 metadata:
   name: bigip-demo
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-agent
+  namespace: bigip-demo
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: ai-agent-scc
+allowPrivilegedContainer: false
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+defaultAddCapabilities: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1000900000
+      max: 1000909999
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+  - ALL
+runAsUser:
+  type: MustRunAs
+  uid: 1000900000  # OpenShift-compatible UID
+seLinuxContext:
+  type: MustRunAs
+seccompProfiles:
+  - runtime/default
+supplementalGroups:
+  type: RunAsAny
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+users:
+  - system:serviceaccount:bigip-demo:ai-agent
+---
 # AI Cluster Deployment - simulating external AI workload traffic.
 apiVersion: apps/v1
 kind: Deployment
@@ -24,6 +69,7 @@ spec:
         app: ai-cluster
         role: ai
     spec:
+      serviceAccountName: ai-agent
       securityContext:
           runAsNonRoot: true
           seccompProfile:
@@ -95,6 +141,7 @@ spec:
         app: eastwest
         role: internal
     spec:
+      serviceAccountName: ai-agent
       securityContext:
           runAsNonRoot: true
           seccompProfile:
@@ -225,6 +272,7 @@ spec:
         app: multicluster
         role: global
     spec:
+      serviceAccountName: ai-agent
       securityContext:
           runAsNonRoot: true
           seccompProfile:
@@ -299,6 +347,7 @@ spec:
         app: lowlatency
         role: performance
     spec:
+      serviceAccountName: ai-agent
       securityContext:
           runAsNonRoot: true
           seccompProfile:
