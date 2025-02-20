@@ -30,31 +30,13 @@ except Exception:
     config.load_kube_config()
     print("Loaded kubeconfig.")
 
-# ------------------------------------------------------------------------------
-# Helper functions to retrieve endpoints
-# ------------------------------------------------------------------------------
-
-
-def get_dynamic_endpoints(service_name, namespace):
-    """
-    Retrieve current pod IPs (internal endpoints) from the specified service.
-    """
-    v1 = client.CoreV1Api()
-    endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
-    addresses = []
-    if endpoints_obj.subsets:
-        for subset in endpoints_obj.subsets:
-            if subset.addresses:
-                for addr in subset.addresses:
-                    addresses.append(addr.ip)
-    return addresses
 
 # ------------------------------------------------------------------------------
 # Configuration variables
 # ------------------------------------------------------------------------------
 
 
-MODEL_SERVICE_URL = f"http://10.4.1.115:3000/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
+MODEL_SERVICE_URL = f"http://10.4.1.115:30001/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
 
 # Deployment and namespace for scaling.
 TARGET_DEPLOYMENT = "sample-deployment"
