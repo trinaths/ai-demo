@@ -26,8 +26,8 @@ spec:
     spec:
       securityContext:
           fsGroup: 101
-      seccompProfile:
-          type: RuntimeDefault
+          seccompProfile:
+            type: RuntimeDefault
       containers:
       - name: ai-cluster-container
         image: nginx:stable
@@ -98,8 +98,8 @@ spec:
     spec:
       securityContext:
           fsGroup: 101
-      seccompProfile:
-          type: RuntimeDefault
+          seccompProfile:
+            type: RuntimeDefault
       containers:
       - name: eastwest-container
         image: nginx:stable
@@ -230,8 +230,8 @@ spec:
     spec:
       securityContext:
           fsGroup: 101
-      seccompProfile:
-          type: RuntimeDefault
+          seccompProfile:
+            type: RuntimeDefault
       containers:
       - name: multicluster-container
         image: nginx:stable
@@ -306,8 +306,8 @@ spec:
     spec:
       securityContext:
           fsGroup: 101
-      seccompProfile:
-          type: RuntimeDefault 
+          seccompProfile:
+            type: RuntimeDefault 
       containers:
       - name: lowlatency-container
         image: nginx:stable
