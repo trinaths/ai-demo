@@ -2,43 +2,61 @@
 """
 validator.py
 
-A unified script that generates synthetic TS logs for a given usecase and module,
-and sends the log to the Agent Service.
-Usage: python validator.py <usecase_number(1-8)> <module>
-Valid modules: LTM, APM, ASM, SYSTEM, AFM.
-This version retrieves the Agent Service endpoint dynamically from the cluster.
+A script that generates synthetic TS logs for all 8 use cases 
+and 5 modules (LTM, APM, ASM, SYSTEM, AFM) and sends them to 
+the Agent Service in one execution.
+
+Usage:
+  python validator.py
 """
 
 import json
 import random
 import sys
+import time
 import requests
 from datetime import datetime
-from kubernetes import client, config
 
-def load_k8s_config():
-    try:
-        config.load_incluster_config()
-    except Exception:
-        config.load_kube_config()
+# Static Agent Service URL
+AGENT_SERVICE_URL = "http://10.4.1.115:30001/process-log"
 
-# Dynamically compute the Agent Service endpoint.
-NAMESPACE = "bigip-demo"
-AGENT_SERVICE_URL = f"http://10.4.1.115:30001/process-log"
+# Configuration
+RETRY_LIMIT = 3  # Max retries for failed requests
+TIME_GAP = 5  # Time delay (seconds) between each request
+
+# Valid use cases and modules
+USECASES = range(1, 9)
+MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
+
 
 def random_ip():
-    return ".".join(str(random.randint(1, 254)) for _ in range(1))
+    """Generate a random IP address."""
+    return ".".join(str(random.randint(1, 254)) for _ in range(4))
+
 
 def generate_log(usecase, module):
+    """Generate a synthetic log entry based on the use case and module."""
     log = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "deviceName": f"bigip-{usecase}",
         "tenant": random.choice(["Common", "Tenant_A", "Tenant_B"]),
-        "cluster": NAMESPACE,
+        "cluster": "bigip-demo",
         "usecase": usecase,
         "module": module,
-        "eventType": module.lower() + "_request"
+        "eventType": module.lower() + "_request",
+        "clientAddress": random_ip(),
+        "clientPort": random.randint(1024, 65535),
+        "serverAddress": random_ip(),
+        "serverPort": str(random.randint(80, 443)),
+        "protocol": random.choice(["HTTP", "HTTPS", "TCP"]),
+        "httpMethod": random.choice(["GET", "POST"]),
+        "httpUri": random.choice(["/", "/login"]),
+        "httpStatus": random.choice([200, 404, 500]),
+        "requestBytes": random.randint(500, 2000),
+        "responseBytes": random.randint(1000, 5000),
     }
+
+    # Module-specific attributes
     if module == "LTM":
         log.update({
             "virtualServerName": "/Common/app.app/app_vs",
@@ -49,14 +67,14 @@ def generate_log(usecase, module):
             "jitter": round(random.uniform(0.0, 0.05), 3),
             "packetLoss": round(random.uniform(0.0, 0.05), 3)
         })
-    if module == "APM":
+    elif module == "APM":
         log["system.connectionsPerformance"] = round(random.uniform(0.0, 1.0), 3)
-    if module == "ASM":
+    elif module == "ASM":
         log.update({
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "asmAttackSignatures": random.choice(["SQL_Injection", "XSS", "None"])
         })
-    if module == "SYSTEM":
+    elif module == "SYSTEM":
         log.update({
             "cpu": round(random.uniform(0.0, 100.0), 1),
             "memory": round(random.uniform(0.0, 100.0), 1),
@@ -64,7 +82,7 @@ def generate_log(usecase, module):
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
         })
-    if module == "AFM":
+    elif module == "AFM":
         log.update({
             "acl_policy_name": "/Common/app",
             "acl_policy_type": "Enforced",
@@ -74,7 +92,6 @@ def generate_log(usecase, module):
             "bigip_mgmt_ip": "10.0.1.100",
             "context_name": "/Common/app.app/app_vs",
             "context_type": "Virtual Server",
-            "date_time": datetime.utcnow().strftime("%b %d %Y %H:%M:%S"),
             "dest_fqdn": "unknown",
             "dest_ip": random_ip(),
             "dst_geo": "Unknown",
@@ -83,61 +100,44 @@ def generate_log(usecase, module):
             "device_vendor": "F5",
             "device_version": "14.0.0",
             "drop_reason": "Policy",
-            "errdefs_msgno": "23003137",
-            "errdefs_msg_name": "Network Event",
-            "flow_id": "0000000000000000",
-            "ip_protocol": "TCP",
-            "severity": "8",
-            "partition_name": "Common",
-            "route_domain": "0",
-            "vlan": "/Common/external",
-            "application": "app.app",
-            "telemetryEventCategory": "AFM",
             "afmThreatScore": round(random.uniform(0.0, 1.0), 3),
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
             "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
         })
-    # Add common network fields.
-    log.update({
-        "clientAddress": random_ip(),
-        "clientPort": random.randint(1024, 65535),
-        "serverAddress": random_ip(),
-        "serverPort": str(random.randint(80, 443)),
-        "protocol": random.choice(["HTTP", "HTTPS", "TCP"]),
-        "httpMethod": random.choice(["GET", "POST"]),
-        "httpUri": random.choice(["/", "/login"]),
-        "httpStatus": random.choice([200, 404, 500]),
-        "requestBytes": random.randint(500, 2000),
-        "responseBytes": random.randint(1000, 5000)
-    })
+    
     return log
 
+
+def send_log(log):
+    """Send a log entry to the Agent Service with retry logic."""
+    for attempt in range(RETRY_LIMIT):
+        try:
+            response = requests.post(AGENT_SERVICE_URL, json=log, timeout=5)
+            response.raise_for_status()
+            print(f"[Usecase {log['usecase']}, {log['module']}] Response: {response.json()}")
+            return
+        except requests.exceptions.RequestException as e:
+            print(f"Error sending log (Attempt {attempt+1}/{RETRY_LIMIT}): {e}")
+            time.sleep(2)  # Retry delay
+    print(f"Failed to send log after {RETRY_LIMIT} retries.")
+
+
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python validator.py <usecase_number(1-8)> <module>")
-        sys.exit(1)
-    try:
-        usecase = int(sys.argv[1])
-        module = sys.argv[2]
-        valid_modules = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
-        if usecase < 1 or usecase > 8:
-            raise ValueError("Usecase number must be between 1 and 8.")
-        if module not in valid_modules:
-            raise ValueError(f"Module must be one of: {', '.join(valid_modules)}")
-    except Exception as e:
-        print("Invalid arguments:", e)
-        sys.exit(1)
-    
-    log = generate_log(usecase, module)
-    print(f"Generated TS Log for Usecase {usecase} ({module}):")
-    print(json.dumps(log, indent=2))
-    
-    try:
-        response = requests.post(AGENT_SERVICE_URL, json=log)
-        print("Response from Agent Service:")
-        print(json.dumps(response.json(), indent=2))
-    except Exception as e:
-        print("Error sending TS log:", e)
+    """Runs all use cases and modules in a single execution."""
+    print(f"Starting full validation cycle across all use cases and modules.")
+
+    for usecase in USECASES:
+        for module in MODULES:
+            print(f"\nValidating Use Case {usecase} - Module {module}")
+            log = generate_log(usecase, module)
+            print(json.dumps(log, indent=2))
+            send_log(log)
+
+            # Wait between each log submission
+            time.sleep(TIME_GAP)
+
+    print(f"\n✅ Completed one full validation cycle across all use cases.")
+
 
 if __name__ == "__main__":
     main()
