@@ -36,7 +36,7 @@ except Exception:
 # ------------------------------------------------------------------------------
 
 
-MODEL_SERVICE_URL = f"http://10.4.1.115:30001/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
+MODEL_SERVICE_URL = f"http://10.4.1.115:3000/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
 
 # Deployment and namespace for scaling.
 TARGET_DEPLOYMENT = "sample-deployment"
