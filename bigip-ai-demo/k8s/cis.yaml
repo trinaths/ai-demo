@@ -1,3 +1,15 @@
+apiVersion: v1
+data:
+  password: YWRtaW4=
+  username: YWRtaW4=
+kind: Secret
+metadata:
+  name: bigip-login
+  namespace: kube-system
+type: Opaque
+
+--- 
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
