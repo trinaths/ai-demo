@@ -25,15 +25,14 @@ spec:
         role: ai
     spec:
       securityContext:
-          fsGroup: 101
+          runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
       containers:
       - name: ai-cluster-container
         image: nginx:stable
         securityContext:
-          runAsUser: 101  
-          runAsGroup: 101
+          runAsUser: 1000900000 
           runAsNonRoot: true  
           capabilities:
             drop: ["ALL"]  
@@ -97,16 +96,14 @@ spec:
         role: internal
     spec:
       securityContext:
-          fsGroup: 101
+          runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
       containers:
       - name: eastwest-container
         image: nginx:stable
         securityContext:
-          runAsUser: 101  # Run as non-root user
-          runAsGroup: 101
-          runAsNonRoot: true  
+          runAsUser: 1000900000   # Run as non-root user 
           capabilities:
             drop: ["ALL"]  
           allowPrivilegeEscalation: false  
@@ -229,16 +226,14 @@ spec:
         role: global
     spec:
       securityContext:
-          fsGroup: 101
+          runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
       containers:
       - name: multicluster-container
         image: nginx:stable
         securityContext:
-          runAsUser: 101  # Run as non-root user
-          runAsGroup: 101
-          runAsNonRoot: true  
+          runAsUser: 1000900000  # Run as non-root user
           capabilities:
             drop: ["ALL"]  
           allowPrivilegeEscalation: false  
@@ -305,16 +300,14 @@ spec:
         role: performance
     spec:
       securityContext:
-          fsGroup: 101
+          runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault 
       containers:
       - name: lowlatency-container
         image: nginx:stable
         securityContext:
-          runAsUser: 101  # Run as non-root user
-          runAsGroup: 101
-          runAsNonRoot: true  
+          runAsUser: 1000900000
           capabilities:
             drop: ["ALL"]  
           allowPrivilegeEscalation: false  
