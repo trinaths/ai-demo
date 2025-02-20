@@ -34,21 +34,6 @@ except Exception:
 # Helper functions to retrieve endpoints
 # ------------------------------------------------------------------------------
 
-def get_nodeport_endpoint(service_name, namespace):
-    """
-    Retrieve the external endpoint for a NodePort service.
-    Returns a list of strings in the format "NODE_IP:NodePort".
-    """
-    v1 = client.CoreV1Api()
-    service = v1.read_namespaced_service(service_name, namespace)
-    node_port = service.spec.ports[0].node_port  # Assumes first port is used.
-    nodes = v1.list_node()
-    endpoints = []
-    for node in nodes.items:
-        for address in node.status.addresses:
-            if address.type == "ExternalIP":
-                endpoints.append(f"{address.address}:{node_port}")
-    return endpoints
 
 def get_dynamic_endpoints(service_name, namespace):
     """
@@ -68,10 +53,7 @@ def get_dynamic_endpoints(service_name, namespace):
 # Configuration variables
 # ------------------------------------------------------------------------------
 
-# Dynamically obtain the Model Service external endpoint.
-model_ep = get_nodeport_endpoint("model-service", "bigip-demo")
-if not model_ep:
-    raise RuntimeError("No external endpoints found for 'model-service' in 'bigip-demo' namespace.")
+
 MODEL_SERVICE_URL = f"http://10.4.1.115:3000/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
 
 # Deployment and namespace for scaling.
