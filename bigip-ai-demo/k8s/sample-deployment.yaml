@@ -1,5 +1,24 @@
 # Namespace Definition.
+# ========================
+# Nginx ConfigMap for AI Cluster
+# ========================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-cluster-nginx-config
+  namespace: bigip-demo
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name localhost;
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+    }
 
+---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
@@ -90,7 +109,13 @@ spec:
           mountPath: /var/cache/nginx
         - name: nginx-tmp
           mountPath: /tmp
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
       volumes:
+      - name: nginx-config
+        configMap:
+          name: ai-cluster-nginx-config
       - name: nginx-cache
         emptyDir: {}
       - name: nginx-tmp
@@ -158,18 +183,20 @@ spec:
         ports:
         - containerPort: 8080
         volumeMounts:
-        - name: nginx-client-temp
-          mountPath: /var/cache/nginx/client_temp
         - name: nginx-cache
           mountPath: /var/cache/nginx
         - name: nginx-tmp
           mountPath: /tmp
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
       volumes:
+      - name: nginx-config
+        configMap:
+          name: ai-cluster-nginx-config
       - name: nginx-cache
         emptyDir: {}
       - name: nginx-tmp
-        emptyDir: {}
-      - name: nginx-client-temp
         emptyDir: {}
 ---
 apiVersion: v1
@@ -290,18 +317,20 @@ spec:
         ports:
         - containerPort: 8080
         volumeMounts:
-        - name: nginx-client-temp
-          mountPath: /var/cache/nginx/client_temp
         - name: nginx-cache
           mountPath: /var/cache/nginx
         - name: nginx-tmp
           mountPath: /tmp
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
       volumes:
+      - name: nginx-config
+        configMap:
+          name: ai-cluster-nginx-config
       - name: nginx-cache
         emptyDir: {}
       - name: nginx-tmp
-        emptyDir: {}
-      - name: nginx-client-temp
         emptyDir: {}
 ---
 apiVersion: v1
@@ -366,18 +395,20 @@ spec:
         ports:
         - containerPort: 8080
         volumeMounts:
-        - name: nginx-client-temp
-          mountPath: /var/cache/nginx/client_temp
         - name: nginx-cache
           mountPath: /var/cache/nginx
         - name: nginx-tmp
           mountPath: /tmp
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
       volumes:
+      - name: nginx-config
+        configMap:
+          name: ai-cluster-nginx-config
       - name: nginx-cache
         emptyDir: {}
       - name: nginx-tmp
-        emptyDir: {}
-      - name: nginx-client-temp
         emptyDir: {}
 ---
 apiVersion: v1
