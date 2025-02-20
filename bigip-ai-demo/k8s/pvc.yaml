@@ -6,7 +6,7 @@ spec:
   capacity:
     storage: 10Gi  # This is the required storage field, specifying 5Gi of space.
   accessModes:
-    - ReadWriteOnce  # The volume can only be mounted by a single node as read-write.
+    - ReadWriteMany  # The volume can only be mounted by a single node as read-write.
   persistentVolumeReclaimPolicy: Retain  # What happens when the PVC is deleted (can be Retain, Recycle, or Delete)
   storageClassName: manual  # If you're using a storage class, specify it here. If not, you can leave it out.
   nodeAffinity:
@@ -29,7 +29,7 @@ metadata:
   namespace: bigip-demo  # Ensure it’s the same namespace as your deployment
 spec:
   accessModes:
-    - ReadWriteOnce  # Allow multiple services to read/write to the volume
+    - ReadWriteMany  # Allow multiple services to read/write to the volume
   resources:
     requests:
       storage: 10Gi  # Request the same size as the PV
