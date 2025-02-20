@@ -1,18 +1,14 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: model-pv
-  namespace: bigip-demo
+  name: model-pvc
 spec:
   capacity:
-    storage: 10Gi
+    storage: 5Gi  # This is the required storage field, specifying 5Gi of space.
   accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: manual
-  hostPath:
-    path: /tmp/data
-    type: DirectoryOrCreate
+    - ReadWriteOnce  # The volume can only be mounted by a single node as read-write.
+  persistentVolumeReclaimPolicy: Retain  # What happens when the PVC is deleted (can be Retain, Recycle, or Delete)
+  storageClassName: manual  # If you're using a storage class, specify it here. If not, you can leave it out.
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -20,24 +16,25 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - 26a56558-9eca-4421-9d1c-171488b8184e
+                - 26a56558-9eca-4421-9d1c-171488b8184e  # Replace <node-name> with the actual name of the node where you want the volume to reside.
+  hostPath:
+    path: /tmp/data  # Path to the directory on the host node's filesystem.
+    type: DirectoryOrCreate  # Optional: This ensures that the directory is created if it doesn't exist.
   seLinuxOptions:
     user: "system_u"
     role: "system_r"
     type: "svirt_lxc_net_t"
     level: "s0"
-
-
---- 
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: model-pvc
-  namespace: bigip-demo
+  namespace: bigip-demo  # Ensure it’s the same namespace as your deployment
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce  # Allow multiple services to read/write to the volume
   resources:
     requests:
-      storage: 10Gi
-  storageClassName: manual
+      storage: 5Gi  # Request the same size as the PV
+  storageClassName: manual  # Must match the PV's storage class
