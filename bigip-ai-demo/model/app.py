@@ -18,7 +18,7 @@ app = Flask(__name__)
 
 MODEL_PATH = "/app/models/trained_models.pkl"
 ORIGINAL_TRAINING_DATA = "/app/models/synthetic_ts_logs.jsonl"
-NEW_TRAINING_DATA = "/app/training_data/accumulated_ts_logs.jsonl"
+NEW_TRAINING_DATA = "/app/models/accumulated_ts_logs.jsonl"
 
 def load_models():
     with open(MODEL_PATH, "rb") as f:

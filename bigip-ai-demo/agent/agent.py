@@ -87,7 +87,7 @@ if not TARGET_SERVICE:
 AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
 
 # Path for accumulating training data.
-TRAINING_DATA_PATH = "/app/training_data/accumulated_ts_logs.jsonl"
+TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
 
 # ------------------------------------------------------------------------------
 # Deployment Scaling and AS3 Payload Functions

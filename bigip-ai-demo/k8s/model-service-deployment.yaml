@@ -23,15 +23,10 @@ spec:
         volumeMounts:
         - name: model-storage
           mountPath: /app/models
-        - name: training-storage
-          mountPath: /app/training_data
       volumes:
       - name: model-storage
         persistentVolumeClaim:
           claimName: model-pvc
-      - name: training-storage
-        persistentVolumeClaim:
-          claimName: training-pvc
 ---
 apiVersion: v1
 kind: Service
