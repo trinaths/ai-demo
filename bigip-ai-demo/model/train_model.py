@@ -2,9 +2,10 @@
 """
 train_model.py
 
-Loads synthetic TS logs, assigns labels based on usecase thresholds,
-extracts features, trains supervised models (RandomForest for LTM, APM, SYSTEM, AFM)
-and an RL agent (Q-learning for ASM), prints training accuracy, and saves the models.
+Loads synthetic TS logs, assigns labels, extracts features,
+and trains models (using RandomForest for supervised modules and Q-learning for ASM).
+It now splits the data into training and test sets, and prints both training
+and test accuracy to help ensure the model is not overfitting.
 """
 
 import json
@@ -12,6 +13,8 @@ import pickle
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 # Define the modules for which we train models.
 modules = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
@@ -92,10 +95,17 @@ def extract_features(module, records):
 def train_supervised(module, records):
     X = extract_features(module, records)
     y = pd.DataFrame(records)["label"]
-    clf = RandomForestClassifier(random_state=42, n_estimators=100)
-    clf.fit(X, y)
-    accuracy = clf.score(X, y)
-    print(f"[{module}] Training Accuracy: {accuracy:.2f}")
+    # Split into training and test sets to monitor overfitting.
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Limit model complexity to help avoid overfitting.
+    clf = RandomForestClassifier(random_state=42, n_estimators=100, max_depth=10, min_samples_split=5)
+    clf.fit(X_train, y_train)
+    
+    train_acc = clf.score(X_train, y_train)
+    test_acc = clf.score(X_test, y_test)
+    
+    print(f"[{module}] Training Accuracy: {train_acc:.2f} | Test Accuracy: {test_acc:.2f}")
     return clf
 
 def train_rl(records, alpha=0.1):
