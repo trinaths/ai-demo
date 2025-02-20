@@ -27,6 +27,10 @@ spec:
       containers:
       - name: ai-cluster-container
         image: nginx:stable
+        securityContext:
+          runAsUser: 101  # Run as non-root user
+          runAsGroup: 101
+          fsGroup: 101
         resources:
           requests:
             cpu: "200m"
@@ -36,14 +40,16 @@ spec:
             memory: "512Mi"
         ports:
         - containerPort: 80
-        # Uncomment below if you encounter similar errors in this workload:
-        # volumeMounts:
-        # - name: nginx-client-temp
-        #   mountPath: /var/cache/nginx/client_temp
-      # Uncomment the volume if using volumeMount above.
-      # volumes:
-      # - name: nginx-client-temp
-      #   emptyDir: {}
+        volumeMounts:
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-tmp
+          mountPath: /tmp
+      volumes:
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
