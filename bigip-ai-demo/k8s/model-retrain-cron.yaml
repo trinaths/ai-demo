@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-retrain-cron
+  labels:
+    app: model-service
+spec:
+  # Run every 5 minutes (adjust as needed)
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: retrain-job
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - "curl -X POST http://model-service:5000/retrain"
+          restartPolicy: OnFailure

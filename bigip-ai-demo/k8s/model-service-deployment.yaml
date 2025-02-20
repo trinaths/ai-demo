@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-service
+  template:
+    metadata:
+      labels:
+        app: model-service
+    spec:
+      containers:
+      - name: model-service
+        image: model-service:latest
+        ports:
+        - containerPort: 5000
+        volumeMounts:
+        - name: model-storage
+          mountPath: /app/models
+        - name: training-storage
+          mountPath: /app/training_data
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-pvc
+      - name: training-storage
+        persistentVolumeClaim:
+          claimName: training-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+spec:
+  type: NodePort
+  selector:
+    app: model-service
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: 30000
