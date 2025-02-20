@@ -46,7 +46,7 @@ agent_endpoints = get_nodeport_endpoint("agent-service", NAMESPACE)
 if not agent_endpoints:
     print("Error: Could not retrieve Agent Service endpoints from Kubernetes.")
     sys.exit(1)
-AGENT_SERVICE_URL = f"http://{agent_endpoints[0]}/process-log"
+AGENT_SERVICE_URL = f"http://10.4.1.115:30001/process-log"
 
 def random_ip():
     return ".".join(str(random.randint(1, 254)) for _ in range(1))

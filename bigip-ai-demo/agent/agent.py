@@ -72,7 +72,7 @@ def get_dynamic_endpoints(service_name, namespace):
 model_ep = get_nodeport_endpoint("model-service", "bigip-demo")
 if not model_ep:
     raise RuntimeError("No external endpoints found for 'model-service' in 'bigip-demo' namespace.")
-MODEL_SERVICE_URL = f"http://{model_ep[0]}/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
+MODEL_SERVICE_URL = f"http://10.4.1.115:3000/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
 
 # Deployment and namespace for scaling.
 TARGET_DEPLOYMENT = "sample-deployment"
