@@ -93,7 +93,7 @@ spec:
             cpu: "500m"
             memory: "512Mi"
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: nginx-cache
           mountPath: /var/cache/nginx
@@ -117,8 +117,8 @@ spec:
     app: ai-cluster
   ports:
   - name: http
-    port: 80
-    targetPort: 80
+    port: 8080
+    targetPort: 8080
   type: ClusterIP
 ---
 # East-West Deployment - for internal AI/RAG workflows.
@@ -164,7 +164,7 @@ spec:
             cpu: "300m"
             memory: "256Mi"
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: nginx-client-temp
           mountPath: /var/cache/nginx/client_temp
@@ -192,8 +192,8 @@ spec:
     app: eastwest
   ports:
   - name: http
-    port: 80
-    targetPort: 80
+    port: 8080
+    targetPort: 8080
   type: ClusterIP
 ---
 # Storage Service Deployment - simulating data storage traffic.
@@ -295,7 +295,7 @@ spec:
             cpu: "400m"
             memory: "400Mi"
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: nginx-client-temp
           mountPath: /var/cache/nginx/client_temp
@@ -323,8 +323,8 @@ spec:
     app: multicluster
   ports:
   - name: http
-    port: 80
-    targetPort: 80
+    port: 8080
+    targetPort: 8080
   type: ClusterIP
 ---
 # Low Latency Deployment - optimized for high performance.
@@ -370,7 +370,7 @@ spec:
             cpu: "150m"
             memory: "128Mi"
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: nginx-client-temp
           mountPath: /var/cache/nginx/client_temp
@@ -398,8 +398,8 @@ spec:
     app: lowlatency
   ports:
   - name: http
-    port: 80
-    targetPort: 80
+    port: 8080
+    targetPort: 8080
   type: ClusterIP
 ---
 # AI Workload Simulator - simulating AI inference traffic.
