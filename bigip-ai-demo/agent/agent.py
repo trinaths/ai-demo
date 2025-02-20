@@ -3,15 +3,15 @@
 agent.py
 
 Agent Service that:
-1. Receives synthetic TS logs via its /process-log endpoint.
+1. Receives synthetic TS logs via /process-log.
 2. Queries the Model Service for a prediction.
 3. Dynamically retrieves current endpoints from a target Kubernetes Service.
 4. Generates a usecase-specific AS3 JSON declaration.
-5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration,
-   so that BIG-IP is automatically updated.
-6. Scales a target deployment (if required).
+5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration.
+6. Scales a target deployment if required.
 7. Appends processed logs for future retraining.
 """
+
 import json
 import os
 import requests
@@ -20,43 +20,78 @@ from kubernetes import client, config
 
 app = Flask(__name__)
 
-# Model Service URL.
-MODEL_SERVICE_URL = "http://localhost:5000/predict"
+# ------------------------------------------------------------------------------
+# Load Kubernetes configuration (in-cluster or kubeconfig)
+# ------------------------------------------------------------------------------
+try:
+    config.load_incluster_config()
+    print("Loaded in-cluster Kubernetes config.")
+except Exception:
+    config.load_kube_config()
+    print("Loaded kubeconfig.")
 
-# Target deployment & namespace for scaling.
+# ------------------------------------------------------------------------------
+# Helper functions to retrieve endpoints
+# ------------------------------------------------------------------------------
+
+def get_nodeport_endpoint(service_name, namespace):
+    """
+    Retrieve the external endpoint for a NodePort service.
+    Returns a list of strings in the format "NODE_IP:NodePort".
+    """
+    v1 = client.CoreV1Api()
+    service = v1.read_namespaced_service(service_name, namespace)
+    node_port = service.spec.ports[0].node_port  # Assumes first port is used.
+    nodes = v1.list_node()
+    endpoints = []
+    for node in nodes.items:
+        for address in node.status.addresses:
+            if address.type == "ExternalIP":
+                endpoints.append(f"{address.address}:{node_port}")
+    return endpoints
+
+def get_dynamic_endpoints(service_name, namespace):
+    """
+    Retrieve current pod IPs (internal endpoints) from the specified service.
+    """
+    v1 = client.CoreV1Api()
+    endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
+    addresses = []
+    if endpoints_obj.subsets:
+        for subset in endpoints_obj.subsets:
+            if subset.addresses:
+                for addr in subset.addresses:
+                    addresses.append(addr.ip)
+    return addresses
+
+# ------------------------------------------------------------------------------
+# Configuration variables
+# ------------------------------------------------------------------------------
+
+# Dynamically obtain the Model Service external endpoint.
+model_ep = get_nodeport_endpoint("model-service", "bigip-demo")
+if not model_ep:
+    raise RuntimeError("No external endpoints found for 'model-service' in 'bigip-demo' namespace.")
+MODEL_SERVICE_URL = f"http://{model_ep[0]}/predict"  # e.g., "http://<node_ip>:<nodeport>/predict"
+
+# Deployment and namespace for scaling.
 TARGET_DEPLOYMENT = "sample-deployment"
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
 
-# Kubernetes Service providing dynamic endpoints.
+# TARGET_SERVICE is set as an environment variable in the deployment YAML.
 TARGET_SERVICE = os.getenv("TARGET_SERVICE")
 if not TARGET_SERVICE:
-    raise ValueError("TARGET_SERVICE environment variable must be set to a valid Kubernetes service name.")
+    raise ValueError("TARGET_SERVICE environment variable must be set.")
 
-# ConfigMap name that F5 CIS monitors for AS3 declarations.
+# ConfigMap name for AS3 declarations (monitored by F5 CIS).
 AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
 
 # Path for accumulating training data.
 TRAINING_DATA_PATH = "/app/training_data/accumulated_ts_logs.jsonl"
 
-# Load Kubernetes configuration.
-try:
-    config.load_incluster_config()
-except Exception:
-    config.load_kube_config()
-
-def get_dynamic_endpoints(service_name, namespace):
-    """
-    Retrieve current pod IPs (endpoints) from the specified service.
-    """
-    v1 = client.CoreV1Api()
-    endpoints = v1.read_namespaced_endpoints(service_name, namespace)
-    addresses = []
-    if endpoints.subsets:
-        for subset in endpoints.subsets:
-            if subset.addresses:
-                for addr in subset.addresses:
-                    addresses.append(addr.ip)
-    return addresses
+# ------------------------------------------------------------------------------
+# Deployment Scaling and AS3 Payload Functions
+# ------------------------------------------------------------------------------
 
 def update_deployment_scale(prediction):
     """
@@ -66,9 +101,9 @@ def update_deployment_scale(prediction):
     scale_obj = api_instance.read_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE)
     current_replicas = scale_obj.status.replicas
     new_replicas = current_replicas
-    if prediction in ["scale_up"]:
+    if prediction == "scale_up":
         new_replicas = current_replicas + 1
-    elif prediction in ["scale_down"] and current_replicas > 1:
+    elif prediction == "scale_down" and current_replicas > 1:
         new_replicas = current_replicas - 1
     patch = {"spec": {"replicas": new_replicas}}
     api_instance.patch_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE, patch)
@@ -77,7 +112,7 @@ def update_deployment_scale(prediction):
 
 def get_base_as3(tenant, timestamp, dynamic_endpoints):
     """
-    Build a base AS3 payload structure.
+    Build a base AS3 payload common to all usecases.
     """
     return {
         "class": "AS3",
@@ -100,30 +135,27 @@ def get_base_as3(tenant, timestamp, dynamic_endpoints):
 
 def generate_as3_payload(ts_log, prediction, replica_count):
     """
-    Create a usecase-specific AS3 payload.
+    Generate a usecase-specific AS3 payload based on the 'usecase' field.
     
-    Usecases (for this demo):
+    Usecases supported:
       1. Traffic Management across AI Clusters  
-      2. AI East-West traffic  
+      2. AI East-West and RAG Workflows  
       3. Data Storage Traffic Management  
       4. Multi-Cluster Networking  
-      5. Low Latency & High Throughput  
-      
-    The payload is built on a common base and then updated according to the usecase.
+      5. Low Latency & High Throughput
     """
     usecase = ts_log.get("usecase")
     tenant = ts_log.get("tenant", "Tenant_Default")
     timestamp = ts_log.get("timestamp", "")
     
-    # Get current endpoints from the target service.
+    # Retrieve internal endpoints from the target service.
     dynamic_endpoints = get_dynamic_endpoints(TARGET_SERVICE, TARGET_NAMESPACE)
     if not dynamic_endpoints:
-        raise RuntimeError(f"No endpoints found for service {TARGET_SERVICE} in namespace {TARGET_NAMESPACE}")
+        raise RuntimeError(f"No endpoints found for service '{TARGET_SERVICE}' in namespace '{TARGET_NAMESPACE}'.")
     
     payload = get_base_as3(tenant, timestamp, dynamic_endpoints)
     
     if usecase == 1:
-        # Usecase 1: Traffic Management across AI Clusters.
         payload["declaration"]["id"] = f"{tenant}-traffic-mgmt-{timestamp}"
         payload["declaration"]["label"] = "Traffic Management across AI Clusters"
         payload["declaration"]["Common"][tenant].update({
@@ -146,9 +178,8 @@ def generate_as3_payload(ts_log, prediction, replica_count):
             }
         })
     elif usecase == 2:
-        # Usecase 2: AI East-West and RAG Workflows.
         payload["declaration"]["id"] = f"{tenant}-eastwest-{timestamp}"
-        payload["declaration"]["label"] = "AI East-West traffic"
+        payload["declaration"]["label"] = "AI East-West & RAG Workflows"
         payload["declaration"]["Common"][tenant].update({
             "serviceHTTP": {
                 "class": "Service_HTTP",
@@ -158,11 +189,10 @@ def generate_as3_payload(ts_log, prediction, replica_count):
             "eastwest_pool": {
                 "class": "Pool",
                 "members": [{"servicePort": 80, "serverAddresses": dynamic_endpoints}],
-                "remark": "Routing internal AI traffic"
+                "remark": "Routing internal AI and RAG traffic"
             }
         })
     elif usecase == 3:
-        # Usecase 3: Data Storage Traffic Management.
         payload["declaration"]["id"] = f"{tenant}-storage-{timestamp}"
         payload["declaration"]["label"] = "Data Storage Traffic Management"
         payload["declaration"]["Common"][tenant].update({
@@ -178,7 +208,6 @@ def generate_as3_payload(ts_log, prediction, replica_count):
             }
         })
     elif usecase == 4:
-        # Usecase 4: Multi-Cluster Networking.
         payload["declaration"]["id"] = f"{tenant}-multicluster-{timestamp}"
         payload["declaration"]["label"] = "Multi Cluster Networking"
         payload["declaration"]["Common"][tenant].update({
@@ -197,11 +226,10 @@ def generate_as3_payload(ts_log, prediction, replica_count):
             "multicluster_pool": {
                 "class": "Pool",
                 "members": [{"servicePort": 443, "serverAddresses": dynamic_endpoints}],
-                "remark": "load balancing across clusters"
+                "remark": "Global load balancing across clusters"
             }
         })
     elif usecase == 5:
-        # Usecase 5: Low Latency & High Throughput.
         payload["declaration"]["id"] = f"{tenant}-lowlatency-{timestamp}"
         payload["declaration"]["label"] = "Low Latency & High Throughput"
         payload["declaration"]["Common"][tenant].update({
@@ -230,23 +258,21 @@ def generate_as3_payload(ts_log, prediction, replica_count):
 
 def update_as3_configmap(as3_payload):
     """
-    Update the AS3 ConfigMap (AS3_CONFIGMAP) in the TARGET_NAMESPACE with the new AS3 declaration.
-    F5 CIS monitors this ConfigMap and pushes the update to BIG-IP.
+    Patch the AS3 ConfigMap (AS3_CONFIGMAP) in TARGET_NAMESPACE with the new AS3 declaration.
+    F5 CIS monitors this ConfigMap and pushes the configuration to BIG-IP.
     """
-    configmap_name = AS3_CONFIGMAP
     v1 = client.CoreV1Api()
     patch_body = {"data": {"as3-declaration": json.dumps(as3_payload)}}
     try:
-        v1.patch_namespaced_config_map(name=configmap_name, namespace=TARGET_NAMESPACE, body=patch_body)
-        print(f"ConfigMap '{configmap_name}' updated with new AS3 declaration.")
+        v1.patch_namespaced_config_map(name=AS3_CONFIGMAP, namespace=TARGET_NAMESPACE, body=patch_body)
+        print(f"ConfigMap '{AS3_CONFIGMAP}' updated with new AS3 declaration.")
     except Exception as e:
-        print(f"Error updating ConfigMap '{configmap_name}': {e}")
+        print(f"Error updating ConfigMap '{AS3_CONFIGMAP}': {e}")
         raise
 
 def append_training_data(ts_log, prediction):
     """
-    Append the processed TS log (with its predicted label) to the training file.
-    This data will later be used for model retraining.
+    Append the processed TS log (with its predicted label) to the training data file.
     """
     ts_log["predicted_label"] = prediction
     try:
@@ -271,21 +297,21 @@ def process_log():
         prediction = response.json().get("prediction", "no_change")
         print(f"Model prediction: {prediction}")
 
-        # If prediction indicates scaling, update the deployment.
+        # Scale the deployment if needed.
         if prediction in ["scale_up", "scale_down"]:
             replica_count = update_deployment_scale(prediction)
         else:
             replica_count = "unchanged"
 
-        # Generate a usecase-specific AS3 payload.
+        # Generate the AS3 payload based on the usecase.
         as3_payload = generate_as3_payload(ts_log, prediction, replica_count)
         print("Generated AS3 payload:")
         print(json.dumps(as3_payload, indent=2))
 
-        # Update the AS3 ConfigMap to trigger BIG-IP updates via F5 CIS.
+        # Update the AS3 ConfigMap so that F5 CIS pushes the new configuration to BIG-IP.
         update_as3_configmap(as3_payload)
 
-        # Append the processed log for retraining.
+        # Append processed log for future retraining.
         append_training_data(ts_log, prediction)
 
         return jsonify({"status": "success", "prediction": prediction, "as3": as3_payload})

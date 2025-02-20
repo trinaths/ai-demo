@@ -6,14 +6,47 @@ A unified script that generates synthetic TS logs for a given usecase and module
 and sends the log to the Agent Service.
 Usage: python validator.py <usecase_number(1-8)> <module>
 Valid modules: LTM, APM, ASM, SYSTEM, AFM.
+This version retrieves the Agent Service endpoint dynamically from the cluster.
 """
+
 import json
 import random
 import sys
 import requests
 from datetime import datetime
+from kubernetes import client, config
 
-AGENT_SERVICE_URL = "http://localhost:5001/process-log"
+def load_k8s_config():
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+
+def get_nodeport_endpoint(service_name, namespace):
+    """
+    Retrieve the external endpoint for a NodePort service.
+    Returns a list of endpoints in the format "NODE_IP:NodePort".
+    """
+    load_k8s_config()
+    v1 = client.CoreV1Api()
+    service = v1.read_namespaced_service(service_name, namespace)
+    node_port = service.spec.ports[0].node_port  # Assumes first port is used.
+    # Retrieve all nodes with ExternalIP addresses.
+    nodes = v1.list_node()
+    endpoints = []
+    for node in nodes.items:
+        for address in node.status.addresses:
+            if address.type == "ExternalIP":
+                endpoints.append(f"{address.address}:{node_port}")
+    return endpoints
+
+# Dynamically compute the Agent Service endpoint.
+NAMESPACE = "bigip-demo"
+agent_endpoints = get_nodeport_endpoint("agent-service", NAMESPACE)
+if not agent_endpoints:
+    print("Error: Could not retrieve Agent Service endpoints from Kubernetes.")
+    sys.exit(1)
+AGENT_SERVICE_URL = f"http://{agent_endpoints[0]}/process-log"
 
 def random_ip():
     return ".".join(str(random.randint(1, 254)) for _ in range(1))
@@ -23,7 +56,7 @@ def generate_log(usecase, module):
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "deviceName": f"bigip-{usecase}",
         "tenant": random.choice(["Common", "Tenant_A", "Tenant_B"]),
-        "cluster": "bigip-demo",
+        "cluster": NAMESPACE,
         "usecase": usecase,
         "module": module,
         "eventType": module.lower() + "_request"
@@ -86,7 +119,7 @@ def generate_log(usecase, module):
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
             "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
         })
-    # Common fields.
+    # Add common network fields.
     log.update({
         "clientAddress": random_ip(),
         "clientPort": random.randint(1024, 65535),

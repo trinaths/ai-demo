@@ -21,6 +21,9 @@ spec:
         image: quay.io/trinathsquay/agent-service:latest
         ports:
         - containerPort: 5001
+        env:
+          - name: TARGET_SERVICE
+            value: "ai-cluster-service"
         volumeMounts:
         - name: model-storage
           mountPath: /app/models

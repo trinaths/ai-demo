@@ -3,7 +3,7 @@
 
 set -e
 
-DOCKER_REGISTRY="your-docker-registry"  # Update with your registry.
+DOCKER_REGISTRY="quay.io/trinathsquay"  # Update with your registry.
 NAMESPACE="bigip-demo"
 MODEL_SERVICE_IMAGE="$DOCKER_REGISTRY/model-service:latest"
 AGENT_SERVICE_IMAGE="$DOCKER_REGISTRY/agent-service:latest"

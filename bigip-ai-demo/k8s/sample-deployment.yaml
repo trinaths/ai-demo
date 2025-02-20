@@ -278,7 +278,7 @@ spec:
     spec:
       containers:
       - name: ai-workload-sim-container
-        image: your-docker-registry/ai-workload-sim:latest
+        image: quay.io/trinathsquay/ai-workload-sim:latest
         resources:
           requests:
             cpu: "100m"

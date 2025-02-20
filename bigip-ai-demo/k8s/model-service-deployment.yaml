@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: model-service
-        image: your-docker-registry/model-service:latest
+        image: quay.io/trinathsquay/model-service:latest
         ports:
         - containerPort: 5000
         volumeMounts:
