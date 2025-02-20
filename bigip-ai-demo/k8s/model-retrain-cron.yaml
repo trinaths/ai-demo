@@ -13,7 +13,7 @@ spec:
         spec:
           containers:
           - name: retrain-job
-            image: curlimages/curl:latest
+            image: quay.io/trinathsquay/model-service:latest
             command:
             - /bin/sh
             - -c
