@@ -22,30 +22,8 @@ def load_k8s_config():
     except Exception:
         config.load_kube_config()
 
-def get_nodeport_endpoint(service_name, namespace):
-    """
-    Retrieve the external endpoint for a NodePort service.
-    Returns a list of endpoints in the format "NODE_IP:NodePort".
-    """
-    load_k8s_config()
-    v1 = client.CoreV1Api()
-    service = v1.read_namespaced_service(service_name, namespace)
-    node_port = service.spec.ports[0].node_port  # Assumes first port is used.
-    # Retrieve all nodes with ExternalIP addresses.
-    nodes = v1.list_node()
-    endpoints = []
-    for node in nodes.items:
-        for address in node.status.addresses:
-            if address.type == "ExternalIP":
-                endpoints.append(f"{address.address}:{node_port}")
-    return endpoints
-
 # Dynamically compute the Agent Service endpoint.
 NAMESPACE = "bigip-demo"
-agent_endpoints = get_nodeport_endpoint("agent-service", NAMESPACE)
-#if not agent_endpoints:
-#    print("Error: Could not retrieve Agent Service endpoints from Kubernetes.")
-#    sys.exit(1)
 AGENT_SERVICE_URL = f"http://10.4.1.115:30001/process-log"
 
 def random_ip():
