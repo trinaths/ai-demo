@@ -24,13 +24,14 @@ spec:
         app: ai-cluster
         role: ai
     spec:
+      securityContext:
+        fsGroup: 101
       containers:
       - name: ai-cluster-container
         image: nginx:stable
         securityContext:
           runAsUser: 101  # Run as non-root user
           runAsGroup: 101
-          fsGroup: 101
         resources:
           requests:
             cpu: "200m"
