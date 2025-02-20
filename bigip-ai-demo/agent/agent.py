@@ -34,7 +34,7 @@ except Exception:
 # ------------------------------------------------------------------------------
 # Configuration variables
 # ------------------------------------------------------------------------------
-MODEL_SERVICE_URL = "http://10.4.1.115:3000/predict"  # Ensure this is correct!
+MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Ensure this is correct!
 
 TARGET_DEPLOYMENT = "sample-deployment"
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
