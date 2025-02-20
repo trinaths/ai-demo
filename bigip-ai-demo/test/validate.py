@@ -43,9 +43,9 @@ def get_nodeport_endpoint(service_name, namespace):
 # Dynamically compute the Agent Service endpoint.
 NAMESPACE = "bigip-demo"
 agent_endpoints = get_nodeport_endpoint("agent-service", NAMESPACE)
-if not agent_endpoints:
-    print("Error: Could not retrieve Agent Service endpoints from Kubernetes.")
-    sys.exit(1)
+#if not agent_endpoints:
+#    print("Error: Could not retrieve Agent Service endpoints from Kubernetes.")
+#    sys.exit(1)
 AGENT_SERVICE_URL = f"http://10.4.1.115:30001/process-log"
 
 def random_ip():
