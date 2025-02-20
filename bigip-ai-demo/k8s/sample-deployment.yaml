@@ -36,6 +36,14 @@ spec:
             memory: "512Mi"
         ports:
         - containerPort: 80
+        # Uncomment below if you encounter similar errors in this workload:
+        # volumeMounts:
+        # - name: nginx-client-temp
+        #   mountPath: /var/cache/nginx/client_temp
+      # Uncomment the volume if using volumeMount above.
+      # volumes:
+      # - name: nginx-client-temp
+      #   emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -85,6 +93,12 @@ spec:
             memory: "256Mi"
         ports:
         - containerPort: 80
+        volumeMounts:
+        - name: nginx-client-temp
+          mountPath: /var/cache/nginx/client_temp
+      volumes:
+      - name: nginx-client-temp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -190,6 +204,8 @@ spec:
             memory: "400Mi"
         ports:
         - containerPort: 80
+        # Optional: mount a volume if needed for writeable directories.
+      # volumes: []
 ---
 apiVersion: v1
 kind: Service
@@ -239,6 +255,12 @@ spec:
             memory: "128Mi"
         ports:
         - containerPort: 80
+        volumeMounts:
+        - name: nginx-client-temp
+          mountPath: /var/cache/nginx/client_temp
+      volumes:
+      - name: nginx-client-temp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
