@@ -77,6 +77,7 @@ spec:
       containers:
       - name: ai-cluster-container
         image: nginx:stable
+        command: ["/bin/sh", "-c", "sed -i 's/listen 80;/listen 8080;/' /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"]
         securityContext:
           runAsUser: 1000900000 
           runAsNonRoot: true  
@@ -149,6 +150,7 @@ spec:
       containers:
       - name: eastwest-container
         image: nginx:stable
+        command: ["/bin/sh", "-c", "sed -i 's/listen 80;/listen 8080;/' /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"]
         securityContext:
           runAsUser: 1000900000   # Run as non-root user 
           capabilities:
@@ -280,6 +282,7 @@ spec:
       containers:
       - name: multicluster-container
         image: nginx:stable
+        command: ["/bin/sh", "-c", "sed -i 's/listen 80;/listen 8080;/' /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"]
         securityContext:
           runAsUser: 1000900000  # Run as non-root user
           capabilities:
@@ -355,6 +358,7 @@ spec:
       containers:
       - name: lowlatency-container
         image: nginx:stable
+        command: ["/bin/sh", "-c", "sed -i 's/listen 80;/listen 8080;/' /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"]
         securityContext:
           runAsUser: 1000900000
           capabilities:
