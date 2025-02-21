@@ -16,13 +16,15 @@ import pickle
 import logging
 import os
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 # Configure logging.
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Define modules.
+# Define the modules for which we train models.
 MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
 
 def convert_asm_attack(record):
@@ -37,7 +39,21 @@ def convert_asm_attack(record):
 
 def assign_label(record):
     """
-    Assign label based on module and usecase.
+    Assign a label based on module and usecase.
+    
+    For LTM and SYSTEM:
+      - Usecase 1: 'offload_crypto' if cryptoLoad (or tmmCpu) exceeds threshold.
+      - Usecase 4: 'update_routing' if throughputPerformance exceeds threshold.
+    For APM:
+      - Usecase 2: 'steer_traffic' if connectionsPerformance exceeds threshold.
+      - Usecase 3: 'enforce_sla' if connectionsPerformance exceeds threshold.
+    For ASM:
+      - Usecase 5: 'scale_up' if an attack is detected.
+      - Usecase 6: 'discover_service' if an attack signature exists.
+      - Usecase 7: 'maintain_cluster' if throughput is low.
+    For AFM:
+      - Usecase 8: 'block_traffic' if the average threat score is high.
+    Otherwise, returns "no_change".
     """
     try:
         module = record["module"]
@@ -57,18 +73,28 @@ def assign_label(record):
         elif module == "APM":
             cp = float(record.get("system.connectionsPerformance", 0))
             if usecase == 2:
-                return "steer_traffic" if cp > 0.6 else "no_change"
+                label = "steer_traffic" if cp > 0.6 else "no_change"
+                logging.debug(f"[APM] Connections Performance: {cp} -> Label: {label}")
+                return label
             elif usecase == 3:
-                return "enforce_sla" if cp > 0.8 else "no_change"
+                label = "enforce_sla" if cp > 0.8 else "no_change"
+                logging.debug(f"[APM] Connections Performance: {cp} -> Label: {label}")
+                return label
         elif module == "ASM":
             tp = float(record.get("throughputPerformance", 0))
             attack_indicator = convert_asm_attack(record)
             if usecase == 5:
-                return "scale_up" if attack_indicator == 1 else "no_change"
+                label = "scale_up" if attack_indicator == 1 else "no_change"
+                logging.debug(f"[ASM] Attack indicator: {attack_indicator} -> Label: {label}")
+                return label
             elif usecase == 6:
-                return "discover_service" if record.get("asmAttackSignatures", "None") != "None" else "no_change"
+                label = "discover_service" if record.get("asmAttackSignatures", "None") != "None" else "no_change"
+                logging.debug(f"[ASM] Attack signature: {record.get('asmAttackSignatures', 'None')} -> Label: {label}")
+                return label
             elif usecase == 7:
-                return "maintain_cluster" if tp < 0.2 else "no_change"
+                label = "maintain_cluster" if tp < 0.2 else "no_change"
+                logging.debug(f"[ASM] Throughput: {tp} -> Label: {label}")
+                return label
         elif module == "AFM":
             if usecase == 8:
                 afmScore = float(record.get("afmThreatScore", 0))
@@ -82,7 +108,7 @@ def assign_label(record):
     return "no_change"
 
 def load_data(log_file):
-    """Load logs, assign labels, and group by module."""
+    """Load logs from the file, assign labels, and group them by module."""
     data = {module: [] for module in MODULES}
     if not os.path.exists(log_file):
         logging.error(f"Log file {log_file} not found.")
@@ -97,13 +123,14 @@ def load_data(log_file):
             except Exception as e:
                 logging.error(f"Error processing line: {e}")
     for module, records in data.items():
-        logging.debug(f"Module {module}: {len(records)} records loaded.")
+        logging.debug(f"Module {module}: Loaded {len(records)} records.")
     return data
 
 def extract_features(module, records):
     """
-    Create a DataFrame and extract required features.
-    Missing fields are filled with default 0.
+    Create a DataFrame from records and extract required features.
+    Missing fields are filled with 0.
+    The returned DataFrame's columns (and their order) should match those used during training.
     """
     df = pd.DataFrame(records)
     logging.debug(f"Initial DataFrame for {module} has shape {df.shape}")
@@ -139,19 +166,21 @@ def extract_features(module, records):
         logging.debug(f"Extracted features for {module} have shape {features.shape}")
         return features
     except Exception as e:
-        logging.error(f"Error extracting features for {module}: {e}")
+        logging.error(f"Error extracting features for module {module}: {e}")
     return None
 
 def train_supervised(module, records):
     """
-    Train a RandomForest model for the given module.
-    Splits data into training and test sets, trains the model, and prints accuracies.
+    Train a supervised RandomForest model for the given module.
+    Splits data into training and test sets, trains the model, and prints training and test accuracies.
     """
     logging.info(f"Training supervised model for {module} with {len(records)} records.")
     X = extract_features(module, records)
     if X is None or X.empty:
         logging.error(f"No features extracted for module {module}.")
         return None
+    # Save the feature names for later prediction use.
+    feature_names = X.columns.tolist()
     y = pd.DataFrame(records)["label"]
     try:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -161,6 +190,8 @@ def train_supervised(module, records):
         train_acc = clf.score(X_train, y_train)
         test_acc = clf.score(X_test, y_test)
         logging.info(f"[{module}] Training Accuracy: {train_acc:.2f} | Test Accuracy: {test_acc:.2f}")
+        # Attach the feature names to the model for later use.
+        clf.feature_names = feature_names
         return clf
     except Exception as e:
         logging.error(f"Error training supervised model for {module}: {e}")
@@ -168,7 +199,7 @@ def train_supervised(module, records):
 
 def train_rl(records, alpha=0.1):
     """
-    Train a simple Q-learning RL agent for ASM.
+    Train a simple Q-learning based RL agent for ASM.
     Uses a Q-table updated with a simple reward mechanism.
     """
     logging.info(f"Training RL agent for ASM with {len(records)} records.")
@@ -192,7 +223,7 @@ def train_rl(records, alpha=0.1):
 
 def train_models(data):
     """
-    Train models for each module and return a mapping from module names to trained models.
+    Train models for each module and return a dictionary mapping module names to trained models.
     """
     models = {}
     for module, records in data.items():
