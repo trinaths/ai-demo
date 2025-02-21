@@ -5,12 +5,13 @@ agent.py
 Agent Service that:
 1. Receives synthetic TS logs via /process-log.
 2. Forwards the log to the unified Model Service for prediction.
-3. Retrieves dynamic endpoints from a target Kubernetes Service.
+3. Retrieves dynamic endpoints from the target Kubernetes Service.
 4. Generates a usecase-specific AS3 JSON declaration:
    • Uses a static virtual IP (per usecase) for BIG‑IP virtualAddresses.
    • Uses dynamic backend endpoints for pool members.
    • Adds dynamic ASM, AFM, and Endpoint policies if the prediction indicates security actions.
 5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration.
+   The ConfigMap name is “as3-json-{usecase}” and is labeled with f5type: virtual-server and as3: "true".
 6. Scales the target deployment based on the prediction.
 7. Appends the processed log for future retraining.
 """
@@ -40,7 +41,7 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
-AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
+# AS3_CONFIGMAP is no longer used as a single config map; we create one per usecase.
 TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
 
 # Mapping of usecases to deployments and services.
@@ -67,10 +68,13 @@ USECASE_VIRTUAL_IPS = {
     8: "192.168.0.108",
 }
 
+# ------------------------------------------------------------------------------
+# Kubernetes Helper Functions
+# ------------------------------------------------------------------------------
 def get_dynamic_endpoints(service_name, namespace):
     """
-    Retrieve backend endpoints (IP addresses) from the given Kubernetes service,
-    and return a list of IPs (without ports) for pool members.
+    Retrieve backend endpoints (IP addresses) from the given Kubernetes service.
+    Returns a list of IPs (without ports) for pool members.
     """
     v1 = client.CoreV1Api()
     try:
@@ -119,8 +123,7 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
     Build a base AS3 declaration using the latest schema.
     Uses a static virtual IP (from USECASE_VIRTUAL_IPS) for the virtualAddresses field,
     and dynamic backend endpoints for pool members.
-    If the prediction indicates enhanced security actions, dynamic ASM, AFM,
-    and Endpoint policies are added.
+    If the prediction indicates enhanced security actions, additional policy objects are added.
     """
     virtual_ip = USECASE_VIRTUAL_IPS.get(usecase, "0.0.0.0")
     as3_payload = {
@@ -158,7 +161,7 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
     }
     logging.debug("Base AS3 payload created.")
 
-    # If the prediction indicates enhanced security actions, add dynamic policies.
+    # Add enhanced security policies if prediction indicates such action.
     if prediction in ["block_traffic", "update_waf", "update_endpoint_policy"]:
         extended_signature_groups = [
             "SQL_Injection", "XSS", "DDoS", "Path_Traversal",
@@ -196,7 +199,7 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
                 }
             ]
         }
-        logging.debug("Prediction indicates enhanced security; adding ASM, AFM, and Endpoint policies.")
+        logging.debug("Enhanced security detected; adding ASM, AFM, and Endpoint policies.")
         app_obj = as3_payload["declaration"]["Common"][tenant]
         app_obj["asmPolicy"] = asm_policy
         app_obj["afmPolicy"] = afm_policy
@@ -207,18 +210,62 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
     logging.debug(f"Final AS3 payload: {json.dumps(as3_payload, indent=2)}")
     return as3_payload
 
-def update_as3_configmap(as3_payload):
+def update_as3_configmap(as3_payload, usecase):
     """
-    Patch the AS3 ConfigMap (monitored by F5 CIS) with the new AS3 declaration.
+    Update (or create) a ConfigMap with a name based on the usecase.
+    The ConfigMap follows the structure:
+    
+      kind: ConfigMap
+      apiVersion: v1
+      metadata:
+        name: as3-json-{usecase}
+        namespace: bigip-demo
+        labels:
+          f5type: virtual-server
+          as3: "true"
+      data:
+        template: |
+          { <AS3 JSON> }
     """
+    config_map_name = f"as3-json-{usecase}"
     v1 = client.CoreV1Api()
-    patch_body = {"data": {"as3-declaration": json.dumps(as3_payload)}}
+    patch_body = {
+        "metadata": {
+            "labels": {
+                "f5type": "virtual-server",
+                "as3": "true"
+            }
+        },
+        "data": {
+            "template": json.dumps(as3_payload, indent=2)
+        }
+    }
     try:
-        logging.debug(f"Updating ConfigMap '{AS3_CONFIGMAP}' with patch: {patch_body}")
-        v1.patch_namespaced_config_map(name=AS3_CONFIGMAP, namespace=TARGET_NAMESPACE, body=patch_body)
-        logging.info(f"ConfigMap '{AS3_CONFIGMAP}' updated successfully.")
+        logging.debug(f"Attempting to patch ConfigMap '{config_map_name}' with: {patch_body}")
+        v1.patch_namespaced_config_map(name=config_map_name, namespace=TARGET_NAMESPACE, body=patch_body)
+        logging.info(f"ConfigMap '{config_map_name}' updated successfully.")
     except Exception as e:
-        logging.error(f"Error updating ConfigMap '{AS3_CONFIGMAP}': {e}")
+        logging.error(f"Error patching ConfigMap '{config_map_name}': {e}. Attempting to create it.")
+        config_map_body = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": config_map_name,
+                "namespace": TARGET_NAMESPACE,
+                "labels": {
+                    "f5type": "virtual-server",
+                    "as3": "true"
+                }
+            },
+            "data": {
+                "template": json.dumps(as3_payload, indent=2)
+            }
+        }
+        try:
+            v1.create_namespaced_config_map(namespace=TARGET_NAMESPACE, body=config_map_body)
+            logging.info(f"ConfigMap '{config_map_name}' created successfully.")
+        except Exception as create_err:
+            logging.error(f"Failed to create ConfigMap '{config_map_name}': {create_err}")
 
 def append_training_data(ts_log, prediction):
     """
@@ -253,7 +300,7 @@ def process_log():
         service_name = target_info["service"]
         logging.debug(f"Target deployment: {deployment_name}, service: {service_name} for usecase {usecase}")
 
-        # Forward the log to the Model Service.
+        # Query the Model Service for prediction.
         logging.info(f"Querying Model Service at {MODEL_SERVICE_URL} ...")
         response = requests.post(MODEL_SERVICE_URL, json=ts_log, timeout=5)
         logging.debug(f"Model Service response status: {response.status_code}")
@@ -265,7 +312,7 @@ def process_log():
         prediction = response.json().get("prediction", "no_change")
         logging.info(f"Model prediction: {prediction}")
 
-        # Scale the deployment if scaling is indicated.
+        # Scale the target deployment if scaling is indicated.
         if prediction in ["scale_up", "scale_down"]:
             logging.debug(f"Scaling deployment '{deployment_name}' due to prediction '{prediction}'")
             replica_count = update_deployment_scale(deployment_name, TARGET_NAMESPACE, prediction)
@@ -280,16 +327,16 @@ def process_log():
             logging.error(error_msg)
             return jsonify({"error": error_msg}), 500
 
-        # Build the AS3 payload using static virtual IP and dynamic endpoints.
+        # Build the AS3 payload using static virtual IP (per usecase) and dynamic endpoints.
         as3_payload = get_base_as3(ts_log.get("tenant", "Tenant_Default"),
                                    ts_log.get("timestamp", ""),
                                    usecase,
                                    dynamic_endpoints,
                                    prediction)
         logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
-        update_as3_configmap(as3_payload)
+        update_as3_configmap(as3_payload, usecase)
 
-        # Append log for future retraining.
+        # Append the TS log along with its prediction for future retraining.
         append_training_data(ts_log, prediction)
         logging.debug("Finished processing TS log; sending response back to caller.")
 
