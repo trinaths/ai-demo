@@ -239,7 +239,7 @@ def generate_ts_log(usecase, module):
     return log
 
 def main():
-    total_logs_per_usecase = 10000  # Number of logs per usecase.
+    total_logs_per_usecase = 30000  # Number of logs per usecase.
     output_file = os.getenv("LOG_FILE", "synthetic_ts_logs.jsonl")
     count = 0
     logging.info(f"Starting log generation: {total_logs_per_usecase} logs per usecase.")
