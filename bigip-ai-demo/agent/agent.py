@@ -36,6 +36,23 @@ except Exception as e:
     config.load_kube_config()
     logging.info("Loaded kubeconfig.")
 
+def get_dynamic_endpoints(service_name, namespace):
+    v1 = client.CoreV1Api()
+    try:
+        endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
+        addresses = []
+        if endpoints_obj.subsets:
+            for subset in endpoints_obj.subsets:
+                port = subset.ports[0].port
+                for address in subset.addresses:
+                    # We only need the IP part for pool members.
+                    addresses.append(address.ip)
+        logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
+        return addresses
+    except Exception as e:
+        logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
+        return []
+
 # ------------------------------------------------------------------------------
 # Configuration Variables
 # ------------------------------------------------------------------------------
