@@ -4,17 +4,26 @@ generate_logs.py
 
 Generates synthetic TS logs for eight use cases using five modules:
 LTM, APM, ASM, SYSTEM, and AFM.
+
 These logs include realistic synthetic attributes (e.g., cryptoLoad, latency,
-throughput, threat scores) that mimic production telemetry.
+throughput, threat scores) that mimic production telemetry. The generated logs 
+are stored in a file for later use in model training, ensuring end-to-end correlation 
+with the model, agent, sample deployments, and validation scripts.
 """
+
 import json
 import random
+import logging
+import os
 from datetime import datetime
 
-# Define sample tenants.
-tenants = ["Common", "Tenant_A", "Tenant_B"]
+# Configure logging.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Mapping of usecase to modules:
+# Define sample tenants.
+TENANTS = ["Common", "Tenant_A", "Tenant_B"]
+
+# Mapping of usecase to modules.
 # 1: LTM & SYSTEM (Crypto Offload)
 # 2: APM (Traffic Steering)
 # 3: APM (SLA Enforcement)
@@ -23,7 +32,7 @@ tenants = ["Common", "Tenant_A", "Tenant_B"]
 # 6: ASM (Service Discovery & Orchestration)
 # 7: ASM (Cluster Maintenance)
 # 8: AFM (Multi-layer Security Enforcement)
-usecase_module_mapping = {
+USECASE_MODULE_MAPPING = {
     1: ["LTM", "SYSTEM"],
     2: ["APM"],
     3: ["APM"],
@@ -35,10 +44,14 @@ usecase_module_mapping = {
 }
 
 def random_ip():
+    """Generate a random IPv4 address."""
     return ".".join(str(random.randint(1, 254)) for _ in range(4))
 
 def generate_system_metrics():
-    # Simulate system metrics used by LTM and SYSTEM logs.
+    """
+    Simulate system metrics used by LTM and SYSTEM logs.
+    Returns tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, and packetLoss.
+    """
     tmmCpu = round(random.uniform(0.0, 1.0), 3)
     tmmTraffic = round(random.uniform(0.0, 1.0), 3)
     cryptoLoad = round(0.6 * tmmCpu + 0.4 * tmmTraffic, 3)
@@ -48,10 +61,10 @@ def generate_system_metrics():
     return tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss
 
 def generate_system_log():
-    # Generate a SYSTEM log carrying overall performance metrics.
+    """Generate a SYSTEM log carrying overall performance metrics."""
     return {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "tenant": random.choice(tenants),
+        "tenant": random.choice(TENANTS),
         "cpu": round(random.uniform(0.0, 100.0), 1),
         "memory": round(random.uniform(0.0, 100.0), 1),
         "tmmCpu": round(random.uniform(0.0, 1.0), 3),
@@ -61,10 +74,10 @@ def generate_system_log():
     }
 
 def generate_afm_log():
-    # Generate an AFM log with multi-layer security fields.
+    """Generate an AFM log with multi-layer security fields."""
     return {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "tenant": random.choice(tenants),
+        "tenant": random.choice(TENANTS),
         "acl_policy_name": "/Common/app",
         "acl_policy_type": "Enforced",
         "acl_rule_name": "ping",
@@ -99,16 +112,21 @@ def generate_afm_log():
     }
 
 def generate_base_log(usecase, module):
-    # For SYSTEM and AFM, use dedicated generators.
+    """
+    Generate a base log entry based on the usecase and module.
+    For SYSTEM and AFM modules, dedicated generators are used.
+    For other modules, a common base with additional fields is generated.
+    """
     if module == "SYSTEM":
         return generate_system_log()
     if module == "AFM":
         return generate_afm_log()
-
-    tenant = random.choice(tenants)
-    log = {"timestamp": datetime.utcnow().isoformat() + "Z", "tenant": tenant}
+    
+    tenant = random.choice(TENANTS)
+    log = {"timestamp": datetime.utcnow().isoformat() + "Z", "tenant": tenant, "usecase": usecase}
+    
     if usecase in [1, 4]:
-        # LTM logs used for crypto offload and routing.
+        # LTM logs (crypto offload and routing update)
         tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss = generate_system_metrics()
         log.update({
             "cryptoLoad": cryptoLoad,
@@ -128,7 +146,7 @@ def generate_base_log(usecase, module):
             "telemetryEventCategory": "LTM"
         })
     elif usecase in [2, 3]:
-        # APM logs for traffic steering and SLA enforcement.
+        # APM logs (traffic steering and SLA enforcement)
         log.update({
             "hostname": "apm-host",
             "errdefs_msgno": "01490102:5:",
@@ -141,7 +159,7 @@ def generate_base_log(usecase, module):
             "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
         })
     elif usecase in [5, 6, 7]:
-        # ASM logs for scaling, service discovery, or maintenance.
+        # ASM logs (auto-scaling, service discovery, cluster maintenance)
         log.update({
             "hostname": "asm-host",
             "management_ip_address": "10.0.1.4",
@@ -194,12 +212,18 @@ def generate_base_log(usecase, module):
     return log
 
 def add_module_specific_fields(log, module):
+    """Add additional module-specific fields to the log entry."""
     if module == "LTM":
         log["sslProtocol"] = random.choice(["TLSv1.2", "TLSv1.3"])
         log["cipherSuite"] = random.choice(["ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-AES256-GCM-SHA384"])
     return log
 
 def generate_ts_log(usecase, module):
+    """
+    Generate a complete TS log by:
+      1. Creating a base log entry (with module and usecase fields).
+      2. Adding module-specific fields.
+    """
     log = generate_base_log(usecase, module)
     log["module"] = module
     log["eventType"] = module.lower() + "_request"
@@ -208,17 +232,21 @@ def generate_ts_log(usecase, module):
     return log
 
 def main():
-    total_logs_per_usecase = 10000
-    output_file = "synthetic_ts_logs.jsonl"
+    total_logs_per_usecase = 10000  # Number of logs to generate per usecase.
+    output_file = os.getenv("LOG_FILE", "synthetic_ts_logs.jsonl")
     count = 0
-    with open(output_file, "w") as f:
-        for usecase, modules in usecase_module_mapping.items():
-            for _ in range(total_logs_per_usecase):
-                for module in modules:
-                    log = generate_ts_log(usecase, module)
-                    f.write(json.dumps(log) + "\n")
-                    count += 1
-    print(f"Generated {count} logs in {output_file}")
+    logging.info(f"Starting log generation: {total_logs_per_usecase} logs per usecase.")
+    try:
+        with open(output_file, "w") as f:
+            for usecase, mod_list in USECASE_MODULE_MAPPING.items():
+                for _ in range(total_logs_per_usecase):
+                    for module in mod_list:
+                        ts_log = generate_ts_log(usecase, module)
+                        f.write(json.dumps(ts_log) + "\n")
+                        count += 1
+        logging.info(f"Generated {count} logs in {output_file}")
+    except Exception as e:
+        logging.error(f"Error generating logs: {e}")
 
 if __name__ == "__main__":
     main()

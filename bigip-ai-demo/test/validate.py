@@ -2,9 +2,9 @@
 """
 validator.py
 
-A script that generates synthetic TS logs for all 8 use cases 
-and 5 modules (LTM, APM, ASM, SYSTEM, AFM) and sends them to 
-the Agent Service in one execution.
+A script that generates synthetic TS logs for all 8 use cases and 5 modules 
+(LTM, APM, ASM, SYSTEM, AFM) and sends them to the Agent Service in one execution.
+Each request is sent with a delay to simulate a realistic workload.
 
 Usage:
   python validator.py
@@ -12,27 +12,29 @@ Usage:
 
 import json
 import random
-import sys
 import time
+import os
 import requests
+import logging
 from datetime import datetime
 
-# Static Agent Service URL
-AGENT_SERVICE_URL = "http://10.4.1.115:30001/process-log"
+# Set up structured logging.
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Configuration
-RETRY_LIMIT = 3  # Max retries for failed requests
-TIME_GAP = 5  # Time delay (seconds) between each request
+# Agent Service URL is configurable via an environment variable.
+AGENT_SERVICE_URL = os.getenv("AGENT_SERVICE_URL", "http://10.4.1.115:30001/process-log")
 
-# Valid use cases and modules
+# Configuration for retries and time gap.
+RETRY_LIMIT = 3      # Maximum number of retry attempts for failed requests.
+TIME_GAP = 5         # Time delay (in seconds) between each log submission.
+
+# Valid use cases and modules.
 USECASES = range(1, 9)
 MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
 
-
 def random_ip():
-    """Generate a random IP address."""
+    """Generate a random IPv4 address."""
     return ".".join(str(random.randint(1, 254)) for _ in range(4))
-
 
 def generate_log(usecase, module):
     """Generate a synthetic log entry based on the use case and module."""
@@ -43,7 +45,7 @@ def generate_log(usecase, module):
         "cluster": "bigip-demo",
         "usecase": usecase,
         "module": module,
-        "eventType": module.lower() + "_request",
+        "eventType": f"{module.lower()}_request",
         "clientAddress": random_ip(),
         "clientPort": random.randint(1024, 65535),
         "serverAddress": random_ip(),
@@ -56,7 +58,7 @@ def generate_log(usecase, module):
         "responseBytes": random.randint(1000, 5000),
     }
 
-    # Module-specific attributes
+    # Add module-specific fields.
     if module == "LTM":
         log.update({
             "virtualServerName": "/Common/app.app/app_vs",
@@ -104,40 +106,32 @@ def generate_log(usecase, module):
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
             "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
         })
-    
-    return log
 
+    return log
 
 def send_log(log):
     """Send a log entry to the Agent Service with retry logic."""
-    for attempt in range(RETRY_LIMIT):
+    for attempt in range(1, RETRY_LIMIT + 1):
         try:
             response = requests.post(AGENT_SERVICE_URL, json=log, timeout=5)
             response.raise_for_status()
-            print(f"[Usecase {log['usecase']}, {log['module']}] Response: {response.json()}")
+            logging.info(f"[Usecase {log['usecase']}, {log['module']}] Response: {response.json()}")
             return
         except requests.exceptions.RequestException as e:
-            print(f"Error sending log (Attempt {attempt+1}/{RETRY_LIMIT}): {e}")
-            time.sleep(2)  # Retry delay
-    print(f"Failed to send log after {RETRY_LIMIT} retries.")
-
+            logging.error(f"Error sending log (Attempt {attempt}/{RETRY_LIMIT}): {e}")
+            time.sleep(2)  # Wait before retrying.
+    logging.error(f"Failed to send log after {RETRY_LIMIT} attempts.")
 
 def main():
-    """Runs all use cases and modules in a single execution."""
-    print(f"Starting full validation cycle across all use cases and modules.")
-
+    logging.info("Starting full validation cycle across all use cases and modules.")
     for usecase in USECASES:
         for module in MODULES:
-            print(f"\nValidating Use Case {usecase} - Module {module}")
+            logging.info(f"Validating Use Case {usecase} - Module {module}")
             log = generate_log(usecase, module)
-            print(json.dumps(log, indent=2))
+            logging.debug("Generated TS log:\n" + json.dumps(log, indent=2))
             send_log(log)
-
-            # Wait between each log submission
             time.sleep(TIME_GAP)
-
-    print(f"\n✅ Completed one full validation cycle across all use cases.")
-
+    logging.info("Completed one full validation cycle across all use cases.")
 
 if __name__ == "__main__":
     main()

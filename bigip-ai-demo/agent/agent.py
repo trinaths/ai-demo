@@ -1,122 +1,128 @@
 #!/usr/bin/env python3
 """
-Improved agent.py with enhanced debug logging.
+agent.py
 
 Agent Service that:
 1. Receives synthetic TS logs via /process-log.
-2. Queries the Model Service for a prediction.
-3. Dynamically retrieves current endpoints from a target Kubernetes Service.
-4. Generates a use-case specific AS3 JSON declaration.
+2. Forwards the log to the Model Service (unified) for a prediction.
+3. Retrieves dynamic endpoints from the target Kubernetes Service.
+4. Generates a usecase-specific AS3 JSON declaration:
+   • Uses a static virtual IP (per usecase) for BIG‑IP virtualAddresses.
+   • Uses dynamic backend endpoints (IP-only) for pool members.
 5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration.
-6. Scales a target deployment if required.
-7. Appends processed logs for future retraining.
+6. Scales the target deployment based on the prediction.
+7. Appends the processed log for future retraining.
 """
 
 import json
 import os
 import requests
-import traceback
 from flask import Flask, request, jsonify
 from kubernetes import client, config
+import logging
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # ------------------------------------------------------------------------------
-# Load Kubernetes configuration (in-cluster or kubeconfig)
+# Load Kubernetes configuration (in-cluster or from kubeconfig)
 # ------------------------------------------------------------------------------
 try:
     config.load_incluster_config()
-    print("✅ Loaded in-cluster Kubernetes config.")
-except Exception:
+    logging.info("Loaded in-cluster Kubernetes config.")
+except Exception as e:
     config.load_kube_config()
-    print("✅ Loaded kubeconfig.")
+    logging.info("Loaded kubeconfig.")
 
 # ------------------------------------------------------------------------------
-# Configuration variables
+# Configuration Variables
 # ------------------------------------------------------------------------------
-MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Ensure this is correct!
-
-TARGET_DEPLOYMENT = "sample-deployment"
+MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
-
-TARGET_SERVICE = os.getenv("TARGET_SERVICE", "ai-cluster-service")
 AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
-
 TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
 
-print(f"ℹ️  Agent Configurations:\n  - MODEL_SERVICE_URL: {MODEL_SERVICE_URL}\n"
-      f"  - TARGET_DEPLOYMENT: {TARGET_DEPLOYMENT}\n"
-      f"  - TARGET_NAMESPACE: {TARGET_NAMESPACE}\n"
-      f"  - TARGET_SERVICE: {TARGET_SERVICE}\n"
-      f"  - AS3_CONFIGMAP: {AS3_CONFIGMAP}\n")
+# Mapping of usecases to deployments and services.
+USECASE_DEPLOYMENT_MAP = {
+    1: {"deployment": "ai-cluster", "service": "ai-cluster-service"},
+    2: {"deployment": "eastwest-app", "service": "eastwest-service"},
+    3: {"deployment": "storage-service", "service": "storage-service"},
+    4: {"deployment": "multicluster-service", "service": "multicluster-service"},
+    5: {"deployment": "lowlatency-app", "service": "lowlatency-service"},
+    6: {"deployment": "api-gateway", "service": "api-gateway-service"},
+    7: {"deployment": "fraud-detection", "service": "fraud-detection-service"},
+    8: {"deployment": "traffic-monitor", "service": "traffic-monitor-service"},
+}
+
+# Mapping of usecase to static virtual IP addresses for BIG‑IP configuration.
+USECASE_VIRTUAL_IPS = {
+    1: "192.168.0.101",
+    2: "192.168.0.102",
+    3: "192.168.0.103",
+    4: "192.168.0.104",
+    5: "192.168.0.105",
+    6: "192.168.0.106",
+    7: "192.168.0.107",
+    8: "192.168.0.108",
+}
 
 # ------------------------------------------------------------------------------
-# Kubernetes Functions
+# Kubernetes Helper Functions
 # ------------------------------------------------------------------------------
 def get_dynamic_endpoints(service_name, namespace):
     """
-    Retrieve internal pod IPs from a service.
+    Retrieve backend endpoints (IP:port) from the given Kubernetes service,
+    and return only the IPs (as a list) for pool members.
     """
     v1 = client.CoreV1Api()
-    print(f"🔍 Fetching endpoints for service: {service_name} in namespace: {namespace}")
-
     try:
-        endpoints = v1.read_namespaced_endpoints(service_name, namespace)
+        endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
         addresses = []
-        if endpoints.subsets:
-            for subset in endpoints.subsets:
-                if subset.addresses:
-                    for addr in subset.addresses:
-                        addresses.append(addr.ip)
-        print(f"✅ Retrieved endpoints: {addresses}")
+        if endpoints_obj.subsets:
+            for subset in endpoints_obj.subsets:
+                port = subset.ports[0].port
+                for address in subset.addresses:
+                    # We only need the IP part for pool members.
+                    addresses.append(address.ip)
+        logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
         return addresses
     except Exception as e:
-        print(f"❌ Error fetching service endpoints: {e}")
+        logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
         return []
 
-def update_deployment_scale(prediction):
+def update_deployment_scale(deployment_name, namespace, prediction):
     """
-    Scale the target deployment based on the AI model's prediction.
+    Scale the target deployment based on the prediction.
+    If the prediction is "scale_up", increase replica count; if "scale_down", decrease.
     """
     api_instance = client.AppsV1Api()
-    print(f"🔄 Scaling Deployment '{TARGET_DEPLOYMENT}' in '{TARGET_NAMESPACE}' based on prediction: {prediction}")
-
     try:
-        scale_obj = api_instance.read_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE)
-        current_replicas = scale_obj.status.replicas
-        new_replicas = max(1, current_replicas + (1 if prediction == "scale_up" else -1))
+        scale_obj = api_instance.read_namespaced_deployment_scale(deployment_name, namespace)
+        current_replicas = scale_obj.spec.replicas
+        new_replicas = current_replicas
+        if prediction == "scale_up":
+            new_replicas = current_replicas + 1
+        elif prediction == "scale_down" and current_replicas > 1:
+            new_replicas = current_replicas - 1
 
-        patch = {"spec": {"replicas": new_replicas}}
-        api_instance.patch_namespaced_deployment_scale(TARGET_DEPLOYMENT, TARGET_NAMESPACE, patch)
-        print(f"✅ Deployment scaled: {current_replicas} ➡ {new_replicas}")
+        if new_replicas != current_replicas:
+            patch = {"spec": {"replicas": new_replicas}}
+            api_instance.patch_namespaced_deployment_scale(deployment_name, namespace, patch)
+            logging.info(f"Deployment '{deployment_name}' scaled from {current_replicas} to {new_replicas}")
+        else:
+            logging.info(f"No scaling change for deployment '{deployment_name}' (replicas remain {current_replicas})")
         return new_replicas
     except Exception as e:
-        print(f"❌ Error scaling deployment: {e}")
+        logging.error(f"Error scaling deployment '{deployment_name}': {e}")
         return "error"
 
-def update_as3_configmap(as3_payload):
+def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints):
     """
-    Patch AS3 ConfigMap with a new declaration.
+    Build a base AS3 declaration. For the virtual address, use a static IP based on the usecase.
+    For pool members, use the dynamic endpoints (list of IPs) retrieved from Kubernetes.
     """
-    v1 = client.CoreV1Api()
-    print(f"📝 Updating AS3 ConfigMap '{AS3_CONFIGMAP}' in namespace '{TARGET_NAMESPACE}'.")
-
-    patch_body = {"data": {"as3-declaration": json.dumps(as3_payload, indent=2)}}
-
-    try:
-        v1.patch_namespaced_config_map(name=AS3_CONFIGMAP, namespace=TARGET_NAMESPACE, body=patch_body)
-        print(f"✅ AS3 ConfigMap '{AS3_CONFIGMAP}' updated successfully.")
-    except Exception as e:
-        print(f"❌ Error updating AS3 ConfigMap: {e}")
-        raise
-
-# ------------------------------------------------------------------------------
-# AS3 Payload Generation
-# ------------------------------------------------------------------------------
-def get_base_as3(tenant, timestamp, endpoints):
-    """
-    Build a base AS3 payload.
-    """
+    # Look up the static virtual IP for the usecase.
+    virtual_ip = USECASE_VIRTUAL_IPS.get(usecase, "0.0.0.0")
     return {
         "class": "AS3",
         "action": "deploy",
@@ -125,89 +131,112 @@ def get_base_as3(tenant, timestamp, endpoints):
             "class": "ADC",
             "schemaVersion": "3.0.0",
             "id": f"{tenant}-{timestamp}",
-            "label": "",
+            "label": f"Update for {tenant}",
             "Common": {
                 "class": "Tenant",
-                tenant: {
+                f"{tenant}": {
                     "class": "Application",
-                    "template": "generic"
+                    "template": "generic",
+                    "serviceHTTP": {
+                        "class": "Service_HTTP",
+                        "virtualAddresses": [virtual_ip],
+                        "pool": "app_pool"
+                    },
+                    "app_pool": {
+                        "class": "Pool",
+                        "members": [{"servicePort": 8080, "serverAddresses": dynamic_endpoints}],
+                        "remark": "Dynamic routing pool"
+                    }
                 }
             }
         }
     }
 
-def generate_as3_payload(ts_log, prediction, replica_count):
+def update_as3_configmap(as3_payload):
     """
-    Generate an AS3 declaration based on the AI model's prediction.
+    Patch the AS3 ConfigMap (monitored by F5 CIS) with the new declaration.
     """
-    usecase = ts_log.get("usecase", "unknown")
-    tenant = ts_log.get("tenant", "Tenant_Default")
-    timestamp = ts_log.get("timestamp", "")
+    v1 = client.CoreV1Api()
+    patch_body = {"data": {"as3-declaration": json.dumps(as3_payload)}}
+    try:
+        v1.patch_namespaced_config_map(name=AS3_CONFIGMAP, namespace=TARGET_NAMESPACE, body=patch_body)
+        logging.info(f"ConfigMap '{AS3_CONFIGMAP}' updated with new AS3 declaration.")
+    except Exception as e:
+        logging.error(f"Error updating ConfigMap '{AS3_CONFIGMAP}': {e}")
 
-    print(f"🔧 Generating AS3 payload for usecase {usecase}...")
+def append_training_data(ts_log, prediction):
+    """
+    Append the processed TS log with its predicted label to a file for future retraining.
+    """
+    ts_log["predicted_label"] = prediction
+    try:
+        os.makedirs(os.path.dirname(TRAINING_DATA_PATH), exist_ok=True)
+        with open(TRAINING_DATA_PATH, "a") as f:
+            f.write(json.dumps(ts_log) + "\n")
+        logging.debug("Training data appended successfully.")
+    except Exception as e:
+        logging.error(f"Error appending training data: {e}")
 
-    endpoints = get_dynamic_endpoints(TARGET_SERVICE, TARGET_NAMESPACE)
-    if not endpoints:
-        raise RuntimeError(f"❌ No endpoints found for {TARGET_SERVICE} in {TARGET_NAMESPACE}.")
-
-    payload = get_base_as3(tenant, timestamp, endpoints)
-    payload["declaration"]["Common"][tenant].update({
-        "serviceHTTP": {
-            "class": "Service_HTTP",
-            "virtualAddresses": endpoints,
-            "pool": "dynamic_pool"
-        },
-        "dynamic_pool": {
-            "class": "Pool",
-            "members": [{"servicePort": 80, "serverAddresses": endpoints}],
-            "remark": f"Use case {usecase} routing"
-        }
-    })
-
-    print(f"✅ AS3 payload generated:\n{json.dumps(payload, indent=2)}")
-    return payload
-
-# ------------------------------------------------------------------------------
-# Flask Endpoints
-# ------------------------------------------------------------------------------
 @app.route("/process-log", methods=["POST"])
 def process_log():
     try:
         ts_log = request.get_json()
         if not ts_log:
-            print("❌ Received empty JSON payload.")
+            logging.error("No JSON payload received.")
             return jsonify({"error": "No JSON payload received"}), 400
 
-        print(f"📥 Received TS Log:\n{json.dumps(ts_log, indent=2)}")
+        logging.info("Received TS log:\n" + json.dumps(ts_log, indent=2))
+        usecase = ts_log.get("usecase")
+        if usecase not in USECASE_DEPLOYMENT_MAP:
+            error_msg = f"Unsupported usecase: {usecase}"
+            logging.error(error_msg)
+            return jsonify({"error": error_msg}), 400
 
-        # Query Model Service
-        try:
-            response = requests.post(MODEL_SERVICE_URL, json=ts_log, timeout=5)
-            response.raise_for_status()
-            prediction = response.json().get("prediction", "no_change")
-            print(f"✅ Model prediction received: {prediction}")
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Model Service Error: {e}")
-            prediction = "no_change"
+        target_info = USECASE_DEPLOYMENT_MAP[usecase]
+        deployment_name = target_info["deployment"]
+        service_name = target_info["service"]
 
-        # Scale Deployment
-        replica_count = update_deployment_scale(prediction) if prediction in ["scale_up", "scale_down"] else "unchanged"
+        # Forward the log to the Model Service for prediction.
+        logging.info(f"Querying Model Service at {MODEL_SERVICE_URL} ...")
+        response = requests.post(MODEL_SERVICE_URL, json=ts_log, timeout=5)
+        if response.status_code != 200:
+            error_msg = f"Model service error: {response.text}"
+            logging.error(error_msg)
+            return jsonify({"error": "Model service error", "details": response.text}), 500
 
-        # Generate AS3 Payload
-        as3_payload = generate_as3_payload(ts_log, prediction, replica_count)
+        prediction = response.json().get("prediction", "no_change")
+        logging.info(f"Model prediction: {prediction}")
 
-        # Update AS3 ConfigMap
+        # Scale the deployment if the prediction indicates scaling.
+        if prediction in ["scale_up", "scale_down"]:
+            replica_count = update_deployment_scale(deployment_name, TARGET_NAMESPACE, prediction)
+        else:
+            replica_count = "unchanged"
+
+        # Retrieve dynamic backend endpoints from the target service.
+        dynamic_endpoints = get_dynamic_endpoints(service_name, TARGET_NAMESPACE)
+        if not dynamic_endpoints:
+            error_msg = f"No endpoints found for service '{service_name}' in namespace '{TARGET_NAMESPACE}'."
+            logging.error(error_msg)
+            return jsonify({"error": error_msg}), 500
+
+        # Build the AS3 payload using a static virtual IP (per usecase) and dynamic endpoints for pool members.
+        as3_payload = get_base_as3(ts_log.get("tenant", "Tenant_Default"), ts_log.get("timestamp", ""), usecase, dynamic_endpoints)
+        logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
         update_as3_configmap(as3_payload)
 
-        return jsonify({"status": "success", "prediction": prediction, "as3": as3_payload})
+        # Append the log along with its prediction for future retraining.
+        append_training_data(ts_log, prediction)
 
+        return jsonify({
+            "status": "success",
+            "prediction": prediction,
+            "scaled_replicas": replica_count,
+            "as3": as3_payload
+        })
     except Exception as e:
-        print(f"❌ ERROR processing log: {e}")
-        print(traceback.format_exc())  # Print full stack trace for debugging
+        logging.error("Exception in process_log: " + str(e))
         return jsonify({"error": str(e)}), 500
 
-# ------------------------------------------------------------------------------
-# Run Flask App
-# ------------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)

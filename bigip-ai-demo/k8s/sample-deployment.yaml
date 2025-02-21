@@ -1,14 +1,23 @@
+# =====================================================
+# Namespace Definition
+# =====================================================
 apiVersion: v1
 kind: Namespace
 metadata:
   name: bigip-demo
 ---
+# =====================================================
+# Service Account for AI Agent
+# =====================================================
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ai-agent
   namespace: bigip-demo
---- 
+---
+# =====================================================
+# Security Context Constraints for AI Agent (OpenShift SCC)
+# =====================================================
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
@@ -31,7 +40,7 @@ requiredDropCapabilities:
   - ALL
 runAsUser:
   type: MustRunAs
-  uid: 1000900000  # OpenShift-compatible UID
+  uid: 1000900000
 seLinuxContext:
   type: MustRunAs
 seccompProfiles:
@@ -48,7 +57,9 @@ volumes:
 users:
   - system:serviceaccount:bigip-demo:ai-agent
 ---
-# AI Cluster Deployment - simulating external AI workload traffic.
+# =====================================================
+# Deployment 1: AI Cluster (Usecase 1)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,42 +67,24 @@ metadata:
   namespace: bigip-demo
   labels:
     app: ai-cluster
-    role: ai
+    usecase: "1"
 spec:
   replicas: 3
   selector:
     matchLabels:
       app: ai-cluster
+      usecase: "1"
   template:
     metadata:
       labels:
         app: ai-cluster
-        role: ai
+        usecase: "1"
     spec:
       serviceAccountName: ai-agent
-      securityContext:
-          runAsNonRoot: true
-          seccompProfile:
-            type: RuntimeDefault
       containers:
       - name: ai-cluster-container
-        image: python:alpine  # Lightweight Python-based image
-        command: ["python", "-m", "http.server", "8080"]  # Run simple HTTP server
-        securityContext:
-          runAsUser: 1000900000 
-          runAsNonRoot: true  
-          capabilities:
-            drop: ["ALL"]  
-          allowPrivilegeEscalation: false  
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            cpu: "200m"
-            memory: "256Mi"
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
         ports:
         - containerPort: 8080
 ---
@@ -102,16 +95,20 @@ metadata:
   namespace: bigip-demo
   labels:
     app: ai-cluster
+    usecase: "1"
 spec:
   selector:
     app: ai-cluster
+    usecase: "1"
   ports:
   - name: http
     port: 8080
     targetPort: 8080
   type: ClusterIP
 ---
-# East-West Deployment - for internal AI/RAG workflows.
+# =====================================================
+# Deployment 2: East-West App (Usecase 2)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -119,44 +116,26 @@ metadata:
   namespace: bigip-demo
   labels:
     app: eastwest
-    role: internal
+    usecase: "2"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: eastwest
+      usecase: "2"
   template:
     metadata:
       labels:
         app: eastwest
-        role: internal
+        usecase: "2"
     spec:
       serviceAccountName: ai-agent
-      securityContext:
-          runAsNonRoot: true
-          seccompProfile:
-            type: RuntimeDefault
       containers:
       - name: eastwest-container
-        image: python:alpine  # Lightweight Python-based image
-        command: ["python", "-m", "http.server", "8080"]  # Run simple HTTP server
-        securityContext:
-          runAsUser: 1000900000   # Run as non-root user 
-          capabilities:
-            drop: ["ALL"]  
-          allowPrivilegeEscalation: false  
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "300m"
-            memory: "256Mi"
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
         ports:
         - containerPort: 8080
-
 ---
 apiVersion: v1
 kind: Service
@@ -165,16 +144,20 @@ metadata:
   namespace: bigip-demo
   labels:
     app: eastwest
+    usecase: "2"
 spec:
   selector:
     app: eastwest
+    usecase: "2"
   ports:
   - name: http
     port: 8080
     targetPort: 8080
   type: ClusterIP
 ---
-# Storage Service Deployment - simulating data storage traffic.
+# =====================================================
+# Deployment 3: Storage Service (Usecase 3)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -182,17 +165,18 @@ metadata:
   namespace: bigip-demo
   labels:
     app: storage-service
-    role: storage
+    usecase: "3"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: storage-service
+      usecase: "3"
   template:
     metadata:
       labels:
         app: storage-service
-        role: storage
+        usecase: "3"
     spec:
       containers:
       - name: minio
@@ -221,16 +205,20 @@ metadata:
   namespace: bigip-demo
   labels:
     app: storage-service
+    usecase: "3"
 spec:
   selector:
     app: storage-service
+    usecase: "3"
   ports:
   - name: http
     port: 9000
     targetPort: 9000
   type: ClusterIP
 ---
-# Multi-Cluster Networking Deployment - simulating global load balancing.
+# =====================================================
+# Deployment 4: Multi-Cluster Service (Usecase 4)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -238,44 +226,26 @@ metadata:
   namespace: bigip-demo
   labels:
     app: multicluster
-    role: global
+    usecase: "4"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: multicluster
+      usecase: "4"
   template:
     metadata:
       labels:
         app: multicluster
-        role: global
+        usecase: "4"
     spec:
       serviceAccountName: ai-agent
-      securityContext:
-          runAsNonRoot: true
-          seccompProfile:
-            type: RuntimeDefault
       containers:
       - name: multicluster-container
-        image: python:alpine  # Lightweight Python-based image
-        command: ["python", "-m", "http.server", "8080"]  # Run simple HTTP server
-        securityContext:
-          runAsUser: 1000900000  # Run as non-root user
-          capabilities:
-            drop: ["ALL"]  
-          allowPrivilegeEscalation: false  
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            cpu: "150m"
-            memory: "200Mi"
-          limits:
-            cpu: "400m"
-            memory: "400Mi"
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
         ports:
         - containerPort: 8080
-
 ---
 apiVersion: v1
 kind: Service
@@ -284,16 +254,20 @@ metadata:
   namespace: bigip-demo
   labels:
     app: multicluster
+    usecase: "4"
 spec:
   selector:
     app: multicluster
+    usecase: "4"
   ports:
   - name: http
     port: 8080
     targetPort: 8080
   type: ClusterIP
 ---
-# Low Latency Deployment - optimized for high performance.
+# =====================================================
+# Deployment 5: Low Latency App (Usecase 5)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -301,44 +275,26 @@ metadata:
   namespace: bigip-demo
   labels:
     app: lowlatency
-    role: performance
+    usecase: "5"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: lowlatency
+      usecase: "5"
   template:
     metadata:
       labels:
         app: lowlatency
-        role: performance
+        usecase: "5"
     spec:
       serviceAccountName: ai-agent
-      securityContext:
-          runAsNonRoot: true
-          seccompProfile:
-            type: RuntimeDefault 
       containers:
       - name: lowlatency-container
-        image: python:alpine  # Lightweight Python-based image
-        command: ["python", "-m", "http.server", "8080"]  # Run simple HTTP server
-        securityContext:
-          runAsUser: 1000900000
-          capabilities:
-            drop: ["ALL"]  
-          allowPrivilegeEscalation: false  
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            cpu: "50m"
-            memory: "64Mi"
-          limits:
-            cpu: "150m"
-            memory: "128Mi"
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
         ports:
         - containerPort: 8080
-
 ---
 apiVersion: v1
 kind: Service
@@ -347,63 +303,160 @@ metadata:
   namespace: bigip-demo
   labels:
     app: lowlatency
+    usecase: "5"
 spec:
   selector:
     app: lowlatency
+    usecase: "5"
   ports:
   - name: http
     port: 8080
     targetPort: 8080
   type: ClusterIP
 ---
-# AI Workload Simulator - simulating AI inference traffic.
+# =====================================================
+# Deployment 6: API Gateway (Usecase 6)
+# =====================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ai-workload-sim
+  name: api-gateway
   namespace: bigip-demo
   labels:
-    app: ai-workload
-    role: ai-simulator
+    app: api-gateway
+    usecase: "6"
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: ai-workload
+      app: api-gateway
+      usecase: "6"
   template:
     metadata:
       labels:
-        app: ai-workload
-        role: ai-simulator
+        app: api-gateway
+        usecase: "6"
     spec:
+      serviceAccountName: ai-agent
       containers:
-      - name: ai-workload-sim-container
-        image: quay.io/trinathsquay/ai-workload-sim:latest
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "300m"
-            memory: "256Mi"
+      - name: api-gateway-container
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
         ports:
         - containerPort: 8080
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ai-workload-service
+  name: api-gateway-service
   namespace: bigip-demo
   labels:
-    app: ai-workload
+    app: api-gateway
+    usecase: "6"
 spec:
   selector:
-    app: ai-workload
+    app: api-gateway
+    usecase: "6"
   ports:
   - name: http
     port: 8080
     targetPort: 8080
   type: ClusterIP
-
-
-
+---
+# =====================================================
+# Deployment 7: Fraud Detection (Usecase 7)
+# =====================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection
+  namespace: bigip-demo
+  labels:
+    app: fraud-detection
+    usecase: "7"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fraud-detection
+      usecase: "7"
+  template:
+    metadata:
+      labels:
+        app: fraud-detection
+        usecase: "7"
+    spec:
+      serviceAccountName: ai-agent
+      containers:
+      - name: fraud-detection-container
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection-service
+  namespace: bigip-demo
+  labels:
+    app: fraud-detection
+    usecase: "7"
+spec:
+  selector:
+    app: fraud-detection
+    usecase: "7"
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
+---
+# =====================================================
+# Deployment 8: Traffic Monitor (Usecase 8)
+# =====================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-monitor
+  namespace: bigip-demo
+  labels:
+    app: traffic-monitor
+    usecase: "8"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: traffic-monitor
+      usecase: "8"
+  template:
+    metadata:
+      labels:
+        app: traffic-monitor
+        usecase: "8"
+    spec:
+      serviceAccountName: ai-agent
+      containers:
+      - name: traffic-monitor-container
+        image: python:alpine
+        command: ["python", "-m", "http.server", "8080"]
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traffic-monitor-service
+  namespace: bigip-demo
+  labels:
+    app: traffic-monitor
+    usecase: "8"
+spec:
+  selector:
+    app: traffic-monitor
+    usecase: "8"
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
