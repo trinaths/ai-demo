@@ -409,18 +409,21 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                         "serviceHTTPS": {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[8]],
-                            "pool": "security_pool"
+                            "pool": "security_pool",                            
+                             "monitors": ["https"],
+                            "policyWAF": {
+                                "bigip": "/Common/demo-waf-policy"
+                            }
                         },
                         "security_pool": {
                             "class": "Pool",
                             "members": [{
                                 "servicePort": 443,
                                 "shareNodes": True,
+                                "connectionLimit": 1000,
                                 "serverAddresses": dynamic_endpoints
                             }],
                             "remark": f"Security enforcement; prediction: {prediction}",
-                            "connectionLimit": 1000,
-                            "monitors": ["https"]
                         }
                     }
                 }
