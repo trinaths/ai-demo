@@ -440,7 +440,7 @@ def update_as3_configmap(as3_payload, usecase):
     Update the AS3 ConfigMap for the given usecase.
     The ConfigMap name is "as3-json-{usecase}" with the proper labels.
     """
-    config_map_name = f"app-{USECASE_DEPLOYMENT_MAP[usecase]["deployment"]}"
+    config_map_name = f"app-{USECASE_DEPLOYMENT_MAP[usecase]['deployment']}"
     v1 = client.CoreV1Api()
     patch_body = {
         "metadata": {
