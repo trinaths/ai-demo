@@ -423,7 +423,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "connectionLimit": 1000,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": "Enforcing security policies with WAF",
+                            "remark": "Enforcing security policies with WAF"
                         }
                     }
                 }
