@@ -9,8 +9,8 @@ Agent Service that:
 4. Generates a usecase‑specific AS3 JSON declaration:
    • Uses a static virtual IP (per use case) for BIG‑IP virtualAddresses.
    • Uses dynamic backend endpoints (list of IPs) for pool members.
-   • For each use case the AS3 JSON is built uniquely to simulate various configuration updates.
-5. Sends the AS3 JSON directly to BIG‑IP at the /mgmt/shared/appsvcs/declare endpoint using basic authentication.
+   • Uses the deployment name (from USECASE_DEPLOYMENT_MAP) as the application key.
+5. Updates a Kubernetes ConfigMap named "as3-json-{usecase}" (with labels f5type: virtual-server and as3: "true") with the AS3 declaration.
 6. Scales the target deployment based on the prediction.
 7. Appends the processed TS log for future retraining.
 """
@@ -21,6 +21,10 @@ import requests
 from flask import Flask, request, jsonify
 from kubernetes import client, config
 import logging
+import urllib3
+
+# Disable warnings for unverified HTTPS requests (for demo purposes).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -40,7 +44,6 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
-# Updated training data path
 TRAINING_DATA_PATH = "/app/models/synthetic_ts_logs.jsonl"
 
 # Mapping of use cases (1-8) to deployments and services.
@@ -67,10 +70,11 @@ USECASE_VIRTUAL_IPS = {
     8: "192.168.0.108"
 }
 
-# BIG‑IP AS3 declaration endpoint and credentials.
-BIGIP_AS3_URL = "https://10.145.79.150/mgmt/shared/appsvcs/declare"
-BIGIP_USER = "admin"
-BIGIP_PASS = "admin"
+# Labels to apply to AS3 ConfigMaps.
+AS3_CONFIGMAP_LABELS = {
+    "f5type": "virtual-server",
+    "as3": "true"
+}
 
 # ------------------------------------------------------------------------------
 # Kubernetes Helper Functions
@@ -78,7 +82,7 @@ BIGIP_PASS = "admin"
 def get_dynamic_endpoints(service_name, namespace):
     """
     Retrieve backend endpoints (IP addresses) from the given Kubernetes service.
-    This function returns a list of IPs (without ports) for pool members.
+    Returns a list of IPs (without ports) for pool members.
     """
     v1 = client.CoreV1Api()
     try:
@@ -86,9 +90,8 @@ def get_dynamic_endpoints(service_name, namespace):
         addresses = []
         if endpoints_obj.subsets:
             for subset in endpoints_obj.subsets:
-                port = subset.ports[0].port
+                # We assume the port is defined but only need the IPs for pool members.
                 for address in subset.addresses:
-                    # Only the IP is needed for pool members.
                     addresses.append(address.ip)
         logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
         return addresses
@@ -96,11 +99,43 @@ def get_dynamic_endpoints(service_name, namespace):
         logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
         return []
 
+def update_deployment_scale(deployment_name, namespace, prediction):
+    """
+    Scale the target deployment based on the prediction.
+    If prediction is "scale_up", increase replicas; if "scale_down", decrease.
+    """
+    api_instance = client.AppsV1Api()
+    try:
+        scale_obj = api_instance.read_namespaced_deployment_scale(deployment_name, namespace)
+        current_replicas = scale_obj.spec.replicas
+        new_replicas = current_replicas
+        if prediction == "scale_up":
+            new_replicas = current_replicas + 1
+        elif prediction == "scale_down" and current_replicas > 1:
+            new_replicas = current_replicas - 1
+
+        if new_replicas != current_replicas:
+            patch = {"spec": {"replicas": new_replicas}}
+            api_instance.patch_namespaced_deployment_scale(deployment_name, namespace, patch)
+            logging.info(f"Deployment '{deployment_name}' scaled from {current_replicas} to {new_replicas}")
+        else:
+            logging.info(f"No scaling change for deployment '{deployment_name}' (replicas remain {current_replicas})")
+        return new_replicas
+    except Exception as e:
+        logging.error(f"Error scaling deployment '{deployment_name}': {e}")
+        return "error"
+
 # ------------------------------------------------------------------------------
 # AS3 JSON Generation Functions for Each Use Case.
 # ------------------------------------------------------------------------------
 def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, prediction):
-    key = f"{tenant}-{usecase}"
+    """
+    Build a usecase-specific AS3 declaration.
+    Uses the deployment name (from USECASE_DEPLOYMENT_MAP) as the application key.
+    For virtualAddresses, a static IP (per use case) is used.
+    For pool members, the dynamic endpoints (list of IPs) are used.
+    """
+    app_key = USECASE_DEPLOYMENT_MAP[usecase]["deployment"]
     if usecase == 1:
         # Use Case 1: Dynamic Crypto Offloading.
         return {
@@ -113,37 +148,28 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Dynamic Crypto Offloading",
                 "remark": "HTTPS with round-robin pool for SSL/TLS offloading",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "acme_https_vs": {
-                        "class": "Service_HTTPS",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[1]],
-                        "pool": "acme_http_pool",
-                        "serverTLS": "acmeTLS"
-                    },
-                    "acme_http_pool": {
-                        "class": "Pool",
-                        "loadBalancingMode": "round-robin",
-                        "monitors": ["http"],
-                        "members": [{
-                            "servicePort": 8080,
-                            "shareNodes": True,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Crypto offloading pool; prediction: {prediction}"
-                    },
-                    "acmeTLS": {
-                        "class": "TLS_Server",
-                        "certificates": [{
-                            "certificate": "acmeCert"
-                        }]
-                    },
-                    "acmeCert": {
-                        "class": "Certificate",
-                        "remark": "For demo purposes only; replace with your own certificate",
-                        "certificate": "-----BEGIN CERTIFICATE-----\nMIIDSDCCAjCgAwIBAgIEFPdzHjANBgkqhkiG9w0BAQsFADBmMQswCQYDVQQGEwJVUzETMBEGA1UECBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMHU2VhdHRsZTESMBAGA1UEAxMJQWNtZSBDb3JwMRwwGgYJKoZIhvcNAQkBFg10ZXN0QGFjbWUuY29t\n-----END CERTIFICATE-----",
-                        "privateKey": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDJY9CAD48s0icyWV8zzyp1lruhK5H1IbowZNZ0HafvivGK76HC2Oa22Pw2fYqRM9U8SMmQBpfWgT6CxlOK9lzVTCWQOWaP0DHnRGRWpdeHjh59yTDLwg4xqxWlkfnGdk0fQ/SXccravUClEvyXQimM/0MW8dkOKNJ2Q6pjwIqcP/xNuMuJS8mv0K8G+d+0KAhp8YDKFFTYva7mK5xrUuLj7Yd/o2Jm24r2/BtQfMfdz3nrtUBwZTml6+g53UsCnFCyFLdkcXMmHI83lUOcq3K1R8LxfHm9Ny5ZtdM19FCOvL3Y0LjKXlGeytEZZjufb9Lul3XqCtbPNkifLn7HKiK3AgMBAAEC\n-----END PRIVATE KEY-----"
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "ssl_offload_vs": {
+                            "class": "Service_HTTPS",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[1]],
+                            "pool": "ssl_offload_pool",
+                            "serverTLS": { "bigip": "/Common/clientssl" }
+                        },
+                        "ssl_offload_pool": {
+                            "class": "Pool",
+                            "loadBalancingMode": "round-robin",
+                            "monitors": ["http"],
+                            "members": [{
+                                "servicePort": 8080,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Crypto offloading pool; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -160,22 +186,26 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Traffic Steering via AI Insights",
                 "remark": "Routing with least-connections load balancing",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTP": {
-                        "class": "Service_HTTP",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[2]],
-                        "pool": "traffic_steering_pool",
-                        "loadBalancingMode": "least-connections"
-                    },
-                    "traffic_steering_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 80,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Traffic steering; prediction: {prediction}"
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTP": {
+                            "class": "Service_HTTP",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[2]],
+                            "pool": "traffic_steering_pool",
+                            "loadBalancingMode": "least-connections"
+                        },
+                        "traffic_steering_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 80,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Traffic steering; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -192,22 +222,26 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "SLA Enforcement",
                 "remark": "SLA enforcement with HTTP monitor",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTP": {
-                        "class": "Service_HTTP",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[3]],
-                        "pool": "sla_enforcement_pool",
-                        "monitor": "/Common/http"
-                    },
-                    "sla_enforcement_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 80,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"SLA enforcement; prediction: {prediction}"
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTP": {
+                            "class": "Service_HTTP",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[3]],
+                            "pool": "sla_enforcement_pool",
+                            "monitors": ["http"]
+                        },
+                        "sla_enforcement_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 80,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"SLA enforcement; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -222,23 +256,27 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "class": "ADC",
                 "schemaVersion": "3.0.0",
                 "id": f"{tenant}-{timestamp}",
-                "label": "Multi-Cluster Ingress/Egress Routing",
+                "label": "Multi-Cluster Ingress and Egress Routing",
                 "remark": "Routing traffic across clusters",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTPS": {
-                        "class": "Service_HTTPS",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[4]],
-                        "pool": "multicluster_pool"
-                    },
-                    "multicluster_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 443,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Routing across clusters; prediction: {prediction}"
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTPS": {
+                            "class": "Service_HTTPS",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[4]],
+                            "pool": "multicluster_pool"
+                        },
+                        "multicluster_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 443,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Routing across clusters; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -255,22 +293,26 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Auto-scale Services",
                 "remark": "Auto-scaling by adjusting connection limits",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTPS": {
-                        "class": "Service_HTTPS",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[5]],
-                        "pool": "autoscale_pool"
-                    },
-                    "autoscale_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 443,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Auto-scale configured; prediction: {prediction}",
-                        "connectionLimit": 5000
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTPS": {
+                            "class": "Service_HTTPS",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[5]],
+                            "pool": "autoscale_pool"
+                        },
+                        "autoscale_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 443,
+                                "shareNodes": True,
+                                "connectionLimit": 5000,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Auto-scale configured; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -285,23 +327,27 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "class": "ADC",
                 "schemaVersion": "3.0.0",
                 "id": f"{tenant}-{timestamp}",
-                "label": "Service Discovery & Orchestration",
+                "label": "Service Discovery and Orchestration",
                 "remark": "Dynamic pool member update for service discovery",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTP": {
-                        "class": "Service_HTTP",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[6]],
-                        "pool": "service_discovery_pool"
-                    },
-                    "service_discovery_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 80,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Service discovery updated; prediction: {prediction}"
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTP": {
+                            "class": "Service_HTTP",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[6]],
+                            "pool": "service_discovery_pool"
+                        },
+                        "service_discovery_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 80,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Service discovery updated; prediction: {prediction}"
+                        }
                     }
                 }
             }
@@ -316,25 +362,29 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "class": "ADC",
                 "schemaVersion": "3.0.0",
                 "id": f"{tenant}-{timestamp}",
-                "label": "Service Resilience & Cluster Maintenance",
+                "label": "Service Resilience and Cluster Maintenance",
                 "remark": "Ensuring minimum active pool members for resilience",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTP": {
-                        "class": "Service_HTTP",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[7]],
-                        "pool": "resilience_pool",
-                        "monitor": "/Common/http"
-                    },
-                    "resilience_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 80,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Resilience set; prediction: {prediction}",
-                        "minActiveMembers": 2
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTP": {
+                            "class": "Service_HTTPS",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[7]],
+                            "pool": "resilience_pool",
+                            "monitors": ["http"]
+                        },
+                        "resilience_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 80,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Resilience set; prediction: {prediction}",
+                            "minimumMembersActive": 2
+                        }
                     }
                 }
             }
@@ -351,47 +401,27 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Multi-Layer Security Enforcement",
                 "remark": "Enforcing security policies via WAF and Firewall updates",
-                key: {
-                    "class": "Application",
-                    "template": "generic",
-                    "serviceHTTPS": {
-                        "class": "Service_HTTPS",
-                        "virtualAddresses": [USECASE_VIRTUAL_IPS[8]],
-                        "pool": "security_pool"
-                    },
-                    "security_pool": {
-                        "class": "Pool",
-                        "members": [{
-                            "servicePort": 443,
-                            "serverAddresses": dynamic_endpoints
-                        }],
-                        "remark": f"Security enforcement; prediction: {prediction}",
-                        "connectionLimit": 1000,
-                        "monitors": ["http"]
-                    },
-                    "wafPolicy": {
-                        "class": "WAF_Policy",
-                        "policy": "/Common/waf_policy",
-                        "alertOnly": False,
-                        "remark": "Dynamic WAF policy for security"
-                    },
-                    "firewallPolicy": {
-                        "class": "Firewall_Rule_List",
-                        "remark": "Dynamic Firewall policy for security",
-                        "rules": [
-                            {
-                                "name": "block_tcp",
-                                "action": "reject",
-                                "protocol": "tcp",
-                                "loggingEnabled": True
-                            },
-                            {
-                                "name": "block_udp",
-                                "action": "reject",
-                                "protocol": "udp",
-                                "loggingEnabled": True
-                            }
-                        ]
+                app_key: {
+                    "class": "Tenant",
+                    app_key: {
+                        "class": "Application",
+                        "template": "generic",
+                        "serviceHTTPS": {
+                            "class": "Service_HTTPS",
+                            "virtualAddresses": [USECASE_VIRTUAL_IPS[8]],
+                            "pool": "security_pool"
+                        },
+                        "security_pool": {
+                            "class": "Pool",
+                            "members": [{
+                                "servicePort": 443,
+                                "shareNodes": True,
+                                "serverAddresses": dynamic_endpoints
+                            }],
+                            "remark": f"Security enforcement; prediction: {prediction}",
+                            "connectionLimit": 1000,
+                            "monitors": ["https"]
+                        }
                     }
                 }
             }
@@ -400,29 +430,37 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
         return {"error": "No AS3 payload defined for this usecase"}
 
 # ------------------------------------------------------------------------------
-# BIG‑IP Update Function.
+# ConfigMap Update Function.
 # ------------------------------------------------------------------------------
-def update_as3(as3_payload, usecase):
+def update_as3_configmap(as3_payload, usecase):
     """
-    Send the AS3 JSON directly to BIG‑IP.
+    Update the AS3 ConfigMap for the given usecase.
+    The ConfigMap name is "as3-json-{usecase}" with the proper labels.
     """
-    logging.debug("AS3 JSON payload to be sent to BIG‑IP:\n" + json.dumps(as3_payload, indent=2))
+    config_map_name = f"as3-json-{usecase}"
+    v1 = client.CoreV1Api()
+    patch_body = {
+        "metadata": {
+            "labels": AS3_CONFIGMAP_LABELS
+        },
+        "data": {
+            "template": json.dumps(as3_payload, indent=2)
+        }
+    }
     try:
-        response = requests.post(
-            BIGIP_AS3_URL,
-            json=as3_payload,
-            auth=(BIGIP_USER, BIGIP_PASS),
-            verify=False,  # Disable SSL verification for demo purposes.
-            timeout=10
-        )
-        logging.debug(f"BIG‑IP response status: {response.status_code}")
-        logging.debug("BIG‑IP response body: " + response.text)
-        if response.status_code not in [200, 201]:
-            logging.error(f"BIG‑IP AS3 declaration update failed: {response.text}")
-        else:
-            logging.info("BIG‑IP AS3 declaration updated successfully.")
+        try:
+            v1.patch_namespaced_config_map(name=config_map_name, namespace=TARGET_NAMESPACE, body=patch_body)
+            logging.info(f"ConfigMap '{config_map_name}' updated with new AS3 declaration.")
+        except Exception as patch_err:
+            logging.warning(f"ConfigMap '{config_map_name}' not found; creating new one.")
+            config_map = client.V1ConfigMap(
+                metadata=client.V1ObjectMeta(name=config_map_name, namespace=TARGET_NAMESPACE, labels=AS3_CONFIGMAP_LABELS),
+                data={"template": json.dumps(as3_payload, indent=2)}
+            )
+            v1.create_namespaced_config_map(namespace=TARGET_NAMESPACE, body=config_map)
+            logging.info(f"ConfigMap '{config_map_name}' created with new AS3 declaration.")
     except Exception as e:
-        logging.error(f"Error sending AS3 declaration to BIG‑IP: {e}")
+        logging.error(f"Error updating ConfigMap '{config_map_name}': {e}")
 
 # ------------------------------------------------------------------------------
 # Training Data Append Function.
@@ -496,7 +534,7 @@ def process_log():
             prediction
         )
         logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
-        update_as3(as3_payload, usecase)
+        update_as3_configmap(as3_payload, usecase)
 
         # Append the TS log for future retraining.
         append_training_data(ts_log, prediction)

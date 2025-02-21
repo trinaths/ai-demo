@@ -26,7 +26,7 @@ AGENT_SERVICE_URL = os.getenv("AGENT_SERVICE_URL", "http://10.4.1.115:30001/proc
 
 # Configuration for retries and time gap.
 RETRY_LIMIT = 3      # Maximum number of retry attempts per log.
-TIME_GAP = 5         # Delay in seconds between each log submission.
+TIME_GAP = 10         # Delay in seconds between each log submission.
 
 # Valid use cases (1 to 8) and modules.
 USECASES = range(1, 9)
