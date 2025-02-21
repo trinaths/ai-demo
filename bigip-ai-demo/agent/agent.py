@@ -153,7 +153,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "ssl_offload_vs": {
+                        app_key: {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[1]],
                             "pool": "ssl_offload_pool",
@@ -191,7 +191,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTP": {
+                        app_key: {
                             "class": "Service_HTTP",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[2]],
                             "pool": "traffic_steering_pool",
@@ -227,7 +227,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTP": {
+                        app_key: {
                             "class": "Service_HTTP",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[3]],
                             "pool": "sla_enforcement_pool",
@@ -263,7 +263,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTPS": {
+                        app_key: {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[4]],
                             "pool": "multicluster_pool"
@@ -298,7 +298,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTPS": {
+                        app_key: {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[5]],
                             "pool": "autoscale_pool"
@@ -334,7 +334,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTP": {
+                        app_key: {
                             "class": "Service_HTTP",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[6]],
                             "pool": "service_discovery_pool"
@@ -369,7 +369,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTP": {
+                        app_key: {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[7]],
                             "pool": "resilience_pool",
@@ -406,7 +406,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                     app_key: {
                         "class": "Application",
                         "template": "generic",
-                        "serviceHTTPS": {
+                        app_key: {
                             "class": "Service_HTTPS",
                             "virtualAddresses": [USECASE_VIRTUAL_IPS[8]],
                             "pool": "security_pool",                            
