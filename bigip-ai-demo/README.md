@@ -19,38 +19,38 @@ The model is trained on synthetic TS logs that mimic production telemetry (e.g.,
 ### Data Generation & Training:
 
 * Synthetic Attributes:
-We use attributes such as cryptoLoad, latency, throughput, afmThreatScore, etc., which are generated with realistic random values. Using ![F5 Telemetry Streaming example output JSON sample data](https://clouddocs.f5.com/products/extensions/f5-telemetry-streaming/latest/output-example.html).
+We use attributes such as cryptoLoad, latency, throughput, afmThreatScore, etc., which are generated with realistic random values. Using [F5 Telemetry Streaming example output JSON sample data](https://clouddocs.f5.com/products/extensions/f5-telemetry-streaming/latest/output-example.html).
 * Model Training:
-* * For supervised models (LTM, APM, SYSTEM, AFM), we extract features (e.g., cryptoLoad, latency, tmmCpu) and train a RandomForest classifier to predict actions like “offload_crypto” or “block_traffic”.
-* * For ASM, we use a simple Q‑learning approach where we update a Q‑table based on a reward signal derived from matching an optimal action (e.g., “scale_up”, “discover_service”).
-* * The training script (train_model.py) loads synthetic logs from a file, assigns labels based on usecase-specific thresholds, extracts features, trains models, and then serializes them to a persistent model file.
+  * For supervised models (LTM, APM, SYSTEM, AFM), we extract features (e.g., cryptoLoad, latency, tmmCpu) and train a RandomForest classifier to predict actions like “offload_crypto” or “block_traffic”.
+  * For ASM, we use a simple Q‑learning approach where we update a Q‑table based on a reward signal derived from matching an optimal action (e.g., “scale_up”, “discover_service”).
+  * The training script (train_model.py) loads synthetic logs from a file, assigns labels based on usecase-specific thresholds, extracts features, trains models, and then serializes them to a persistent model file.
 
 ### Agent Service Operation:
 
 * Receive TS Log:
-* * The agent accepts a TS log via its /process-log endpoint.
+  * The agent accepts a TS log via its /process-log endpoint.
 * Get Prediction:
-* * It sends the log to the Model Service to get an action prediction.
+  * It sends the log to the Model Service to get an action prediction.
 * Scale Deployment (if needed):
-* * If the prediction indicates scaling (e.g., “scale_up”), the agent updates the target deployment.
+  * If the prediction indicates scaling (e.g., “scale_up”), the agent updates the target deployment.
 * Generate AS3 Payload:
-* * Using the usecase field, the agent builds a consolidated AS3 JSON declaration (using dynamic endpoints fetched from Kubernetes).
+  * Using the usecase field, the agent builds a consolidated AS3 JSON declaration (using dynamic endpoints fetched from Kubernetes).
 * Update AS3 ConfigMap:
-* * The agent patches a ConfigMap (monitored by F5 CIS) with the new AS3 payload. F5 CIS automatically pushes the configuration to BIG‑IP.
+  * The agent patches a ConfigMap (monitored by F5 CIS) with the new AS3 payload. F5 CIS automatically pushes the configuration to BIG‑IP.
 * Append Training Data:
-* * The processed log is saved for future retraining.
+  * The processed log is saved for future retraining.
 * Retraining:
-* * A CronJob periodically triggers the Model Service’s /retrain endpoint to fine‑tune models with the new training data.
+  * A CronJob periodically triggers the Model Service’s /retrain endpoint to fine‑tune models with the new training data.
 
 ### Test Environment:
 
 * A realistic environment is created with multiple sample deployments that simulate:
-* * AI cluster workloads (traffic management),
-* * East-West internal traffic (AI and RAG workflows),
-* * Storage traffic (MinIO),
-* * Global multi-cluster networking,
-* * Low-latency, high-throughput services,
-* * AI Workload Simulator (mimicking inference traffic).
+  * AI cluster workloads (traffic management),
+  * East-West internal traffic (AI and RAG workflows),
+  * Storage traffic (MinIO),
+  * Global multi-cluster networking,
+  * Low-latency, high-throughput services,
+  * AI Workload Simulator (mimicking inference traffic).
 
 All resources are deployed in the bigip-demo namespace.
 
