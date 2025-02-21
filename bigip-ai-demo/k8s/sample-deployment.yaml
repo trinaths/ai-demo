@@ -6,6 +6,16 @@ kind: Namespace
 metadata:
   name: bigip-demo
 ---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: as3-config
+  namespace: bigip-demo
+data:
+  template: |
+      {}
+---   
 # =====================================================
 # Service Account for AI Agent
 # =====================================================

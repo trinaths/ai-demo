@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-validator.py
+validate.py
 
 A script that generates synthetic TS logs for all 8 use cases and 5 modules 
 (LTM, APM, ASM, SYSTEM, AFM) and sends them to the Agent Service in one execution.
 Each request is sent with a delay to simulate a realistic workload.
 
 Usage:
-  python validator.py
+  python validate.py
 """
 
 import json
@@ -25,12 +25,18 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(m
 AGENT_SERVICE_URL = os.getenv("AGENT_SERVICE_URL", "http://10.4.1.115:30001/process-log")
 
 # Configuration for retries and time gap.
-RETRY_LIMIT = 3      # Maximum number of retry attempts for failed requests.
-TIME_GAP = 5         # Time delay (in seconds) between each log submission.
+RETRY_LIMIT = 3      # Maximum number of retry attempts per log.
+TIME_GAP = 5         # Delay in seconds between each log submission.
 
-# Valid use cases and modules.
+# Valid use cases (1 to 8) and modules.
 USECASES = range(1, 9)
 MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
+
+# Extended list of attack signatures for multi-layer security.
+EXTENDED_ATTACK_SIGNATURES = [
+    "SQL_Injection", "XSS", "DDoS", "Path_Traversal",
+    "Remote_File_Inclusion", "CSRF", "Malware", "RCE", "None"
+]
 
 def random_ip():
     """Generate a random IPv4 address."""
@@ -39,7 +45,7 @@ def random_ip():
     return ip
 
 def generate_log(usecase, module):
-    """Generate a synthetic log entry based on the use case and module."""
+    """Generate a synthetic TS log entry based on the use case and module."""
     logging.debug(f"Generating log for usecase {usecase}, module {module}")
     log = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -55,18 +61,20 @@ def generate_log(usecase, module):
         "serverPort": str(random.randint(80, 443)),
         "protocol": random.choice(["HTTP", "HTTPS", "TCP"]),
         "httpMethod": random.choice(["GET", "POST"]),
-        "httpUri": random.choice(["/", "/login"]),
+        "httpUri": random.choice(["/", "/login", "/dashboard"]),
         "httpStatus": random.choice([200, 404, 500]),
         "requestBytes": random.randint(500, 2000),
         "responseBytes": random.randint(1000, 5000),
+        "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
+        "latency": round(random.uniform(0.01, 0.3), 3),
+        "cryptoLoad": round(random.uniform(0.0, 1.0), 3)
     }
-
-    # Add module-specific fields.
+    
+    # Module-specific fields.
     if module == "LTM":
         ltm_fields = {
             "virtualServerName": "/Common/app.app/app_vs",
             "poolName": "/Common/app.app/app_pool",
-            "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "cryptoLoad": round(random.uniform(0.0, 1.0), 3),
             "latency": round(random.uniform(0.01, 0.3), 3),
             "jitter": round(random.uniform(0.0, 0.05), 3),
@@ -75,13 +83,13 @@ def generate_log(usecase, module):
         log.update(ltm_fields)
         logging.debug(f"LTM specific fields added: {ltm_fields}")
     elif module == "APM":
-        apm_value = round(random.uniform(0.0, 1.0), 3)
-        log["system.connectionsPerformance"] = apm_value
-        logging.debug(f"APM field system.connectionsPerformance: {apm_value}")
+        apm_val = round(random.uniform(0.0, 1.0), 3)
+        log["system.connectionsPerformance"] = apm_val
+        logging.debug(f"APM field system.connectionsPerformance set to {apm_val}")
     elif module == "ASM":
         asm_fields = {
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
-            "asmAttackSignatures": random.choice(["SQL_Injection", "XSS", "None"])
+            "asmAttackSignatures": random.choice(EXTENDED_ATTACK_SIGNATURES)
         }
         log.update(asm_fields)
         logging.debug(f"ASM specific fields added: {asm_fields}")
@@ -115,11 +123,11 @@ def generate_log(usecase, module):
             "drop_reason": "Policy",
             "afmThreatScore": round(random.uniform(0.0, 1.0), 3),
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
-            "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
+            "asmAttackIndicator": 1 if random.choice(EXTENDED_ATTACK_SIGNATURES) != "None" else 0
         }
         log.update(afm_fields)
         logging.debug(f"AFM specific fields added: {afm_fields}")
-
+    
     logging.debug(f"Final generated log for usecase {usecase}, module {module}: {log}")
     return log
 
@@ -130,11 +138,11 @@ def send_log(log):
             logging.debug(f"Attempt {attempt}/{RETRY_LIMIT}: Sending log: {json.dumps(log)}")
             response = requests.post(AGENT_SERVICE_URL, json=log, timeout=5)
             response.raise_for_status()
-            logging.info(f"[Usecase {log['usecase']}, {log['module']}] Received response: {response.json()}")
+            logging.info(f"[Usecase {log['usecase']}, {log['module']}] Response: {response.json()}")
             return
         except requests.exceptions.RequestException as e:
             logging.error(f"Error sending log (Attempt {attempt}/{RETRY_LIMIT}): {e}")
-            time.sleep(2)  # Wait before retrying.
+            time.sleep(2)
     logging.error(f"Failed to send log after {RETRY_LIMIT} attempts.")
 
 def main():

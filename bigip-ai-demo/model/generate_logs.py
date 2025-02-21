@@ -4,11 +4,10 @@ generate_logs.py
 
 Generates synthetic TS logs for eight use cases using five modules:
 LTM, APM, ASM, SYSTEM, and AFM.
-
 These logs include realistic synthetic attributes (e.g., cryptoLoad, latency,
-throughput, threat scores) that mimic production telemetry. The generated logs 
-are stored in a file for later use in model training, ensuring end-to-end correlation 
-with the model, agent, sample deployments, and validation scripts.
+throughput, threat scores, and extended multi‑layer security attack signatures)
+that mimic production telemetry.
+The logs are stored in a file (default: "synthetic_ts_logs.jsonl") for model training.
 """
 
 import json
@@ -18,12 +17,12 @@ import os
 from datetime import datetime
 
 # Configure logging.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # Define sample tenants.
 TENANTS = ["Common", "Tenant_A", "Tenant_B"]
 
-# Mapping of usecase to modules.
+# Mapping of usecase to modules:
 # 1: LTM & SYSTEM (Crypto Offload)
 # 2: APM (Traffic Steering)
 # 3: APM (SLA Enforcement)
@@ -43,26 +42,32 @@ USECASE_MODULE_MAPPING = {
     8: ["AFM"]
 }
 
+# Extended list of attack signatures for multi-layer security
+EXTENDED_ATTACK_SIGNATURES = [
+    "SQL_Injection", "XSS", "DDoS", "Path_Traversal",
+    "Remote_File_Inclusion", "CSRF", "Malware", "RCE", "None"
+]
+
 def random_ip():
     """Generate a random IPv4 address."""
-    return ".".join(str(random.randint(1, 254)) for _ in range(4))
+    ip = ".".join(str(random.randint(1, 254)) for _ in range(4))
+    logging.debug(f"Generated random IP: {ip}")
+    return ip
 
 def generate_system_metrics():
-    """
-    Simulate system metrics used by LTM and SYSTEM logs.
-    Returns tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, and packetLoss.
-    """
+    """Simulate system metrics used by LTM and SYSTEM logs."""
     tmmCpu = round(random.uniform(0.0, 1.0), 3)
     tmmTraffic = round(random.uniform(0.0, 1.0), 3)
     cryptoLoad = round(0.6 * tmmCpu + 0.4 * tmmTraffic, 3)
     latency = round(random.uniform(0.01, 0.3), 3)
     jitter = round(random.uniform(0.0, 0.05), 3)
     packetLoss = round(random.uniform(0.0, 0.05), 3)
+    logging.debug(f"System metrics: tmmCpu={tmmCpu}, tmmTraffic={tmmTraffic}, cryptoLoad={cryptoLoad}, latency={latency}, jitter={jitter}, packetLoss={packetLoss}")
     return tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss
 
 def generate_system_log():
     """Generate a SYSTEM log carrying overall performance metrics."""
-    return {
+    log = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "tenant": random.choice(TENANTS),
         "cpu": round(random.uniform(0.0, 100.0), 1),
@@ -72,10 +77,12 @@ def generate_system_log():
         "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3),
         "eventType": "system_info"
     }
+    logging.debug(f"Generated SYSTEM log: {log}")
+    return log
 
 def generate_afm_log():
     """Generate an AFM log with multi-layer security fields."""
-    return {
+    log = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "tenant": random.choice(TENANTS),
         "acl_policy_name": "/Common/app",
@@ -107,15 +114,17 @@ def generate_afm_log():
         "telemetryEventCategory": "AFM",
         "afmThreatScore": round(random.uniform(0.0, 1.0), 3),
         "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
-        "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0,
+        "asmAttackIndicator": 1 if random.choice(EXTENDED_ATTACK_SIGNATURES) != "None" else 0,
         "eventType": "afm_request"
     }
+    logging.debug(f"Generated AFM log: {log}")
+    return log
 
 def generate_base_log(usecase, module):
     """
     Generate a base log entry based on the usecase and module.
     For SYSTEM and AFM modules, dedicated generators are used.
-    For other modules, a common base with additional fields is generated.
+    For other modules, a common base log is generated.
     """
     if module == "SYSTEM":
         return generate_system_log()
@@ -124,9 +133,7 @@ def generate_base_log(usecase, module):
     
     tenant = random.choice(TENANTS)
     log = {"timestamp": datetime.utcnow().isoformat() + "Z", "tenant": tenant, "usecase": usecase}
-    
     if usecase in [1, 4]:
-        # LTM logs (crypto offload and routing update)
         tmmCpu, tmmTraffic, cryptoLoad, latency, jitter, packetLoss = generate_system_metrics()
         log.update({
             "cryptoLoad": cryptoLoad,
@@ -146,7 +153,6 @@ def generate_base_log(usecase, module):
             "telemetryEventCategory": "LTM"
         })
     elif usecase in [2, 3]:
-        # APM logs (traffic steering and SLA enforcement)
         log.update({
             "hostname": "apm-host",
             "errdefs_msgno": "01490102:5:",
@@ -159,7 +165,6 @@ def generate_base_log(usecase, module):
             "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
         })
     elif usecase in [5, 6, 7]:
-        # ASM logs (auto-scaling, service discovery, cluster maintenance)
         log.update({
             "hostname": "asm-host",
             "management_ip_address": "10.0.1.4",
@@ -181,7 +186,7 @@ def generate_base_log(usecase, module):
             "sig_names": "",
             "date_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
             "severity": random.choice(["Critical", "Moderate"]),
-            "attack_type": random.choice(["Detection Evasion,Path Traversal", "None"]),
+            "attack_type": random.choice(EXTENDED_ATTACK_SIGNATURES),
             "geo_location": "US",
             "ip_address_intelligence": "N/A",
             "username": "N/A",
@@ -206,9 +211,10 @@ def generate_base_log(usecase, module):
             "request": "GET /admin/..%2F..%2F..%2Fdirectory/file HTTP/1.0\r\nHost: example.com\r\nConnection: keep-alive",
             "telemetryEventCategory": "ASM",
             "application": "app.app",
-            "asmAttackSignatures": random.choice(["SQL_Injection", "XSS", "None"]),
+            "asmAttackSignatures": random.choice(EXTENDED_ATTACK_SIGNATURES),
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3)
         })
+    logging.debug(f"Base log for usecase {usecase}, module {module}: {log}")
     return log
 
 def add_module_specific_fields(log, module):
@@ -229,16 +235,18 @@ def generate_ts_log(usecase, module):
     log["eventType"] = module.lower() + "_request"
     log["usecase"] = usecase
     log = add_module_specific_fields(log, module)
+    logging.debug(f"Final TS log for usecase {usecase}, module {module}: {log}")
     return log
 
 def main():
-    total_logs_per_usecase = 30000  # Number of logs to generate per usecase.
+    total_logs_per_usecase = 10000  # Number of logs per usecase.
     output_file = os.getenv("LOG_FILE", "synthetic_ts_logs.jsonl")
     count = 0
     logging.info(f"Starting log generation: {total_logs_per_usecase} logs per usecase.")
     try:
         with open(output_file, "w") as f:
             for usecase, mod_list in USECASE_MODULE_MAPPING.items():
+                logging.debug(f"Processing usecase {usecase} with modules: {mod_list}")
                 for _ in range(total_logs_per_usecase):
                     for module in mod_list:
                         ts_log = generate_ts_log(usecase, module)
