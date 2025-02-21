@@ -22,7 +22,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 # Configure logging.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # Define the modules for which we train models.
 MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
@@ -30,7 +30,9 @@ MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
 def convert_asm_attack(record):
     """Convert ASM attack signature into a binary indicator."""
     try:
-        return 1 if record.get("asmAttackSignatures", "None") != "None" else 0
+        value = record.get("asmAttackSignatures", "None")
+        logging.debug(f"Converting ASM attack signature, value: {value}")
+        return 1 if value != "None" else 0
     except Exception as e:
         logging.error(f"Error converting ASM attack signature: {e}")
         return 0
@@ -56,13 +58,18 @@ def assign_label(record):
     try:
         module = record["module"]
         usecase = record["usecase"]
+        logging.debug(f"Assigning label for module {module}, usecase {usecase}")
         if module in ["LTM", "SYSTEM"]:
             if usecase == 1:
                 value = float(record.get("cryptoLoad", 0)) if module == "LTM" else float(record.get("tmmCpu", 0))
-                return "offload_crypto" if value > 0.7 else "no_change"
+                label = "offload_crypto" if value > 0.7 else "no_change"
+                logging.debug(f"[{module}] Value: {value} -> Label: {label}")
+                return label
             elif usecase == 4:
                 tp = float(record.get("throughputPerformance", 0))
-                return "update_routing" if tp > 0.8 else "no_change"
+                label = "update_routing" if tp > 0.8 else "no_change"
+                logging.debug(f"[{module}] Throughput: {tp} -> Label: {label}")
+                return label
         elif module == "APM":
             cp = float(record.get("system.connectionsPerformance", 0))
             if usecase == 2:
@@ -84,6 +91,7 @@ def assign_label(record):
                 accessAnomaly = float(record.get("accessAnomaly", 0))
                 asmIndicator = float(record.get("asmAttackIndicator", 0))
                 securityIndex = (afmScore + accessAnomaly + asmIndicator) / 3.0
+                logging.debug(f"[AFM] SecurityIndex: {securityIndex}")
                 return "block_traffic" if securityIndex > 0.7 else "no_change"
     except Exception as e:
         logging.error(f"Error assigning label for record: {e}")
@@ -107,6 +115,9 @@ def load_data(log_file):
                 data[module].append(record)
             except Exception as e:
                 logging.error(f"Error processing line: {e}")
+    # Log counts per module
+    for module, records in data.items():
+        logging.debug(f"Module {module}: {len(records)} records loaded.")
     return data
 
 def extract_features(module, records):
@@ -116,40 +127,49 @@ def extract_features(module, records):
     Returns a DataFrame of the required features.
     """
     df = pd.DataFrame(records)
+    logging.debug(f"Initial DataFrame for {module} has shape {df.shape}")
     try:
         if module == "LTM":
             for field in ["cryptoLoad", "throughputPerformance", "latency", "jitter", "packetLoss"]:
                 if field not in df.columns:
+                    logging.debug(f"Field '{field}' missing in {module}; filling with 0.")
                     df[field] = 0
-            return df[["cryptoLoad", "throughputPerformance", "latency", "jitter", "packetLoss"]]
+            features = df[["cryptoLoad", "throughputPerformance", "latency", "jitter", "packetLoss"]]
         elif module == "APM":
             if "system.connectionsPerformance" not in df.columns:
+                logging.debug("Field 'system.connectionsPerformance' missing in APM; filling with 0.")
                 df["system.connectionsPerformance"] = 0
-            return df[["system.connectionsPerformance"]]
+            features = df[["system.connectionsPerformance"]]
         elif module == "ASM":
             if "throughputPerformance" not in df.columns:
+                logging.debug("Field 'throughputPerformance' missing in ASM; filling with 0.")
                 df["throughputPerformance"] = 0
             df["attackIndicator"] = df.apply(convert_asm_attack, axis=1)
-            return df[["throughputPerformance", "attackIndicator"]]
+            features = df[["throughputPerformance", "attackIndicator"]]
         elif module == "SYSTEM":
             for field in ["tmmCpu", "throughputPerformance"]:
                 if field not in df.columns:
+                    logging.debug(f"Field '{field}' missing in SYSTEM; filling with 0.")
                     df[field] = 0
-            return df[["tmmCpu", "throughputPerformance"]]
+            features = df[["tmmCpu", "throughputPerformance"]]
         elif module == "AFM":
             if "afmThreatScore" not in df.columns:
+                logging.debug("Field 'afmThreatScore' missing in AFM; filling with 0.")
                 df["afmThreatScore"] = 0
-            return df[["afmThreatScore"]]
+            features = df[["afmThreatScore"]]
+        logging.debug(f"Extracted features for {module} have shape {features.shape}")
+        return features
     except Exception as e:
-        logging.error(f"Error extracting features for module {module}: {e}")
+        logging.error(f"Error extracting features for {module}: {e}")
     return None
 
 def train_supervised(module, records):
     """
     Train a supervised RandomForest model for a module.
     Splits the data into training and test sets, trains the model,
-    and prints training and test accuracy.
+    and prints both training and test accuracy.
     """
+    logging.info(f"Training supervised model for {module} with {len(records)} records.")
     X = extract_features(module, records)
     if X is None or len(X) == 0:
         logging.error(f"No features extracted for module {module}.")
@@ -157,6 +177,7 @@ def train_supervised(module, records):
     y = pd.DataFrame(records)["label"]
     try:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        logging.debug(f"Training set for {module}: {X_train.shape}, Test set: {X_test.shape}")
         clf = RandomForestClassifier(random_state=42, n_estimators=100, max_depth=10, min_samples_split=5)
         clf.fit(X_train, y_train)
         train_acc = clf.score(X_train, y_train)
@@ -172,6 +193,7 @@ def train_rl(records, alpha=0.1):
     Train a simple Q-learning based RL agent for ASM.
     Updates a Q-table using a simple reward mechanism.
     """
+    logging.info(f"Training RL agent for ASM with {len(records)} records.")
     actions = ["scale_up", "scale_down", "discover_service", "maintain_cluster", "no_change"]
     q_table = {}
     try:
@@ -184,6 +206,7 @@ def train_rl(records, alpha=0.1):
                 reward = 1 if a == optimal_action else 0
                 q_table[state][a] += alpha * (reward - q_table[state][a])
         logging.info("[ASM] RL Agent training complete (Q-table updated).")
+        logging.debug(f"RL Q-table: {q_table}")
         return q_table
     except Exception as e:
         logging.error(f"Error training RL agent for ASM: {e}")
@@ -192,7 +215,7 @@ def train_rl(records, alpha=0.1):
 def train_models(data):
     """
     Train models for each module from the provided data dictionary.
-    Returns a dictionary mapping module names to trained models.
+    Returns a dictionary mapping module names to their trained model or Q-table.
     """
     models = {}
     for module, records in data.items():

@@ -34,10 +34,13 @@ MODULES = ["LTM", "APM", "ASM", "SYSTEM", "AFM"]
 
 def random_ip():
     """Generate a random IPv4 address."""
-    return ".".join(str(random.randint(1, 254)) for _ in range(4))
+    ip = ".".join(str(random.randint(1, 254)) for _ in range(4))
+    logging.debug(f"Generated random IP: {ip}")
+    return ip
 
 def generate_log(usecase, module):
     """Generate a synthetic log entry based on the use case and module."""
+    logging.debug(f"Generating log for usecase {usecase}, module {module}")
     log = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "deviceName": f"bigip-{usecase}",
@@ -60,7 +63,7 @@ def generate_log(usecase, module):
 
     # Add module-specific fields.
     if module == "LTM":
-        log.update({
+        ltm_fields = {
             "virtualServerName": "/Common/app.app/app_vs",
             "poolName": "/Common/app.app/app_pool",
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
@@ -68,24 +71,32 @@ def generate_log(usecase, module):
             "latency": round(random.uniform(0.01, 0.3), 3),
             "jitter": round(random.uniform(0.0, 0.05), 3),
             "packetLoss": round(random.uniform(0.0, 0.05), 3)
-        })
+        }
+        log.update(ltm_fields)
+        logging.debug(f"LTM specific fields added: {ltm_fields}")
     elif module == "APM":
-        log["system.connectionsPerformance"] = round(random.uniform(0.0, 1.0), 3)
+        apm_value = round(random.uniform(0.0, 1.0), 3)
+        log["system.connectionsPerformance"] = apm_value
+        logging.debug(f"APM field system.connectionsPerformance: {apm_value}")
     elif module == "ASM":
-        log.update({
+        asm_fields = {
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "asmAttackSignatures": random.choice(["SQL_Injection", "XSS", "None"])
-        })
+        }
+        log.update(asm_fields)
+        logging.debug(f"ASM specific fields added: {asm_fields}")
     elif module == "SYSTEM":
-        log.update({
+        system_fields = {
             "cpu": round(random.uniform(0.0, 100.0), 1),
             "memory": round(random.uniform(0.0, 100.0), 1),
             "tmmCpu": round(random.uniform(0.0, 1.0), 3),
             "throughputPerformance": round(random.uniform(0.0, 1.0), 3),
             "system.connectionsPerformance": round(random.uniform(0.0, 1.0), 3)
-        })
+        }
+        log.update(system_fields)
+        logging.debug(f"SYSTEM specific fields added: {system_fields}")
     elif module == "AFM":
-        log.update({
+        afm_fields = {
             "acl_policy_name": "/Common/app",
             "acl_policy_type": "Enforced",
             "acl_rule_name": "ping",
@@ -105,17 +116,21 @@ def generate_log(usecase, module):
             "afmThreatScore": round(random.uniform(0.0, 1.0), 3),
             "accessAnomaly": round(random.uniform(0.0, 1.0), 3),
             "asmAttackIndicator": 1 if random.choice(["SQL_Injection", "XSS", "None"]) != "None" else 0
-        })
+        }
+        log.update(afm_fields)
+        logging.debug(f"AFM specific fields added: {afm_fields}")
 
+    logging.debug(f"Final generated log for usecase {usecase}, module {module}: {log}")
     return log
 
 def send_log(log):
     """Send a log entry to the Agent Service with retry logic."""
     for attempt in range(1, RETRY_LIMIT + 1):
         try:
+            logging.debug(f"Attempt {attempt}/{RETRY_LIMIT}: Sending log: {json.dumps(log)}")
             response = requests.post(AGENT_SERVICE_URL, json=log, timeout=5)
             response.raise_for_status()
-            logging.info(f"[Usecase {log['usecase']}, {log['module']}] Response: {response.json()}")
+            logging.info(f"[Usecase {log['usecase']}, {log['module']}] Received response: {response.json()}")
             return
         except requests.exceptions.RequestException as e:
             logging.error(f"Error sending log (Attempt {attempt}/{RETRY_LIMIT}): {e}")
@@ -125,11 +140,13 @@ def send_log(log):
 def main():
     logging.info("Starting full validation cycle across all use cases and modules.")
     for usecase in USECASES:
+        logging.debug(f"Starting logs for usecase {usecase}")
         for module in MODULES:
             logging.info(f"Validating Use Case {usecase} - Module {module}")
             log = generate_log(usecase, module)
             logging.debug("Generated TS log:\n" + json.dumps(log, indent=2))
             send_log(log)
+            logging.debug(f"Sleeping for {TIME_GAP} seconds before next log submission.")
             time.sleep(TIME_GAP)
     logging.info("Completed one full validation cycle across all use cases.")
 

@@ -42,7 +42,7 @@ TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
 AS3_CONFIGMAP = os.getenv("AS3_CONFIGMAP", "as3-config")
 TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
 
-# Mapping of usecases to deployments and services.
+# Mapping of usecases to deployments/services.
 USECASE_DEPLOYMENT_MAP = {
     1: {"deployment": "ai-cluster", "service": "ai-cluster-service"},
     2: {"deployment": "eastwest-app", "service": "eastwest-service"},
@@ -71,8 +71,8 @@ USECASE_VIRTUAL_IPS = {
 # ------------------------------------------------------------------------------
 def get_dynamic_endpoints(service_name, namespace):
     """
-    Retrieve backend endpoints (IP:port) from the given Kubernetes service,
-    and return only the IPs (as a list) for pool members.
+    Retrieve backend endpoints (IP addresses) from the given Kubernetes service,
+    and return a list of IPs for pool members.
     """
     v1 = client.CoreV1Api()
     try:
@@ -82,7 +82,7 @@ def get_dynamic_endpoints(service_name, namespace):
             for subset in endpoints_obj.subsets:
                 port = subset.ports[0].port
                 for address in subset.addresses:
-                    # We only need the IP part for pool members.
+                    # For pool members we only need the IP (not the port)
                     addresses.append(address.ip)
         logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
         return addresses
@@ -93,12 +93,13 @@ def get_dynamic_endpoints(service_name, namespace):
 def update_deployment_scale(deployment_name, namespace, prediction):
     """
     Scale the target deployment based on the prediction.
-    If the prediction is "scale_up", increase replica count; if "scale_down", decrease.
+    If prediction is "scale_up", increment replicas; if "scale_down", decrement.
     """
     api_instance = client.AppsV1Api()
     try:
         scale_obj = api_instance.read_namespaced_deployment_scale(deployment_name, namespace)
         current_replicas = scale_obj.spec.replicas
+        logging.debug(f"Current replicas for '{deployment_name}': {current_replicas}")
         new_replicas = current_replicas
         if prediction == "scale_up":
             new_replicas = current_replicas + 1
@@ -107,6 +108,7 @@ def update_deployment_scale(deployment_name, namespace, prediction):
 
         if new_replicas != current_replicas:
             patch = {"spec": {"replicas": new_replicas}}
+            logging.debug(f"Patching deployment '{deployment_name}' with: {patch}")
             api_instance.patch_namespaced_deployment_scale(deployment_name, namespace, patch)
             logging.info(f"Deployment '{deployment_name}' scaled from {current_replicas} to {new_replicas}")
         else:
@@ -118,12 +120,12 @@ def update_deployment_scale(deployment_name, namespace, prediction):
 
 def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints):
     """
-    Build a base AS3 declaration. For the virtual address, use a static IP based on the usecase.
-    For pool members, use the dynamic endpoints (list of IPs) retrieved from Kubernetes.
+    Build a base AS3 declaration.
+    Uses a static virtual IP (from USECASE_VIRTUAL_IPS) for BIG‑IP virtualAddresses,
+    and dynamic backend endpoints (list of IPs) for pool members.
     """
-    # Look up the static virtual IP for the usecase.
     virtual_ip = USECASE_VIRTUAL_IPS.get(usecase, "0.0.0.0")
-    return {
+    as3_payload = {
         "class": "AS3",
         "action": "deploy",
         "persist": True,
@@ -151,22 +153,25 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints):
             }
         }
     }
+    logging.debug(f"AS3 payload base: {json.dumps(as3_payload, indent=2)}")
+    return as3_payload
 
 def update_as3_configmap(as3_payload):
     """
-    Patch the AS3 ConfigMap (monitored by F5 CIS) with the new declaration.
+    Patch the AS3 ConfigMap (monitored by F5 CIS) with the new AS3 declaration.
     """
     v1 = client.CoreV1Api()
     patch_body = {"data": {"as3-declaration": json.dumps(as3_payload)}}
     try:
+        logging.debug(f"Updating ConfigMap '{AS3_CONFIGMAP}' with patch: {patch_body}")
         v1.patch_namespaced_config_map(name=AS3_CONFIGMAP, namespace=TARGET_NAMESPACE, body=patch_body)
-        logging.info(f"ConfigMap '{AS3_CONFIGMAP}' updated with new AS3 declaration.")
+        logging.info(f"ConfigMap '{AS3_CONFIGMAP}' updated successfully.")
     except Exception as e:
         logging.error(f"Error updating ConfigMap '{AS3_CONFIGMAP}': {e}")
 
 def append_training_data(ts_log, prediction):
     """
-    Append the processed TS log with its predicted label to a file for future retraining.
+    Append the processed TS log along with its prediction to the training data file.
     """
     ts_log["predicted_label"] = prediction
     try:
@@ -195,10 +200,12 @@ def process_log():
         target_info = USECASE_DEPLOYMENT_MAP[usecase]
         deployment_name = target_info["deployment"]
         service_name = target_info["service"]
+        logging.debug(f"Target deployment: {deployment_name} and service: {service_name} for usecase {usecase}")
 
-        # Forward the log to the Model Service for prediction.
+        # Query the Model Service for prediction.
         logging.info(f"Querying Model Service at {MODEL_SERVICE_URL} ...")
         response = requests.post(MODEL_SERVICE_URL, json=ts_log, timeout=5)
+        logging.debug(f"Model Service response status: {response.status_code}")
         if response.status_code != 200:
             error_msg = f"Model service error: {response.text}"
             logging.error(error_msg)
@@ -207,11 +214,13 @@ def process_log():
         prediction = response.json().get("prediction", "no_change")
         logging.info(f"Model prediction: {prediction}")
 
-        # Scale the deployment if the prediction indicates scaling.
+        # Scale the deployment if scaling is indicated.
         if prediction in ["scale_up", "scale_down"]:
+            logging.debug(f"Scaling deployment '{deployment_name}' due to prediction '{prediction}'")
             replica_count = update_deployment_scale(deployment_name, TARGET_NAMESPACE, prediction)
         else:
             replica_count = "unchanged"
+            logging.debug(f"No scaling required for deployment '{deployment_name}' with prediction '{prediction}'")
 
         # Retrieve dynamic backend endpoints from the target service.
         dynamic_endpoints = get_dynamic_endpoints(service_name, TARGET_NAMESPACE)
@@ -220,13 +229,17 @@ def process_log():
             logging.error(error_msg)
             return jsonify({"error": error_msg}), 500
 
-        # Build the AS3 payload using a static virtual IP (per usecase) and dynamic endpoints for pool members.
-        as3_payload = get_base_as3(ts_log.get("tenant", "Tenant_Default"), ts_log.get("timestamp", ""), usecase, dynamic_endpoints)
+        # Build the AS3 payload.
+        as3_payload = get_base_as3(ts_log.get("tenant", "Tenant_Default"),
+                                   ts_log.get("timestamp", ""),
+                                   usecase,
+                                   dynamic_endpoints)
         logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
         update_as3_configmap(as3_payload)
 
-        # Append the log along with its prediction for future retraining.
+        # Append the log and prediction for future retraining.
         append_training_data(ts_log, prediction)
+        logging.debug("Finished processing TS log; sending response back to caller.")
 
         return jsonify({
             "status": "success",
@@ -239,4 +252,5 @@ def process_log():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
+    logging.debug("Starting Agent Service...")
     app.run(host="0.0.0.0", port=5001, debug=True)
