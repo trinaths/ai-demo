@@ -10,8 +10,7 @@ Agent Service that:
    • Uses a static virtual IP (per use case) for BIG‑IP virtualAddresses.
    • Uses dynamic backend endpoints (list of IPs) for pool members.
    • For each use case the AS3 JSON is built uniquely to simulate various configuration updates.
-5. Updates (or creates) a Kubernetes ConfigMap named "as3-json-{usecase}" with labels 
-   (f5type: virtual-server, as3: "true") so that F5 CIS pushes the configuration.
+5. Sends the AS3 JSON directly to BIG‑IP at the /mgmt/shared/appsvcs/declare endpoint using basic authentication.
 6. Scales the target deployment based on the prediction.
 7. Appends the processed TS log for future retraining.
 """
@@ -36,28 +35,12 @@ except Exception as e:
     config.load_kube_config()
     logging.info("Loaded kubeconfig.")
 
-def get_dynamic_endpoints(service_name, namespace):
-    v1 = client.CoreV1Api()
-    try:
-        endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
-        addresses = []
-        if endpoints_obj.subsets:
-            for subset in endpoints_obj.subsets:
-                port = subset.ports[0].port
-                for address in subset.addresses:
-                    # We only need the IP part for pool members.
-                    addresses.append(address.ip)
-        logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
-        return addresses
-    except Exception as e:
-        logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
-        return []
-
 # ------------------------------------------------------------------------------
 # Configuration Variables
 # ------------------------------------------------------------------------------
 MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
+# Updated training data path
 TRAINING_DATA_PATH = "/app/models/synthetic_ts_logs.jsonl"
 
 # Mapping of use cases (1-8) to deployments and services.
@@ -69,7 +52,7 @@ USECASE_DEPLOYMENT_MAP = {
     5: {"deployment": "lowlatency-app", "service": "lowlatency-service"},
     6: {"deployment": "api-gateway", "service": "api-gateway-service"},
     7: {"deployment": "fraud-detection", "service": "fraud-detection-service"},
-    8: {"deployment": "traffic-monitor", "service": "traffic-monitor-service"}
+    8: {"deployment": "traffic-monitor", "service": "traffic-monitor-service"},
 }
 
 # Mapping of use case to static virtual IP addresses.
@@ -84,20 +67,42 @@ USECASE_VIRTUAL_IPS = {
     8: "192.168.0.108"
 }
 
+# BIG‑IP AS3 declaration endpoint and credentials.
+BIGIP_AS3_URL = "https://10.145.79.150/mgmt/shared/appsvcs/declare"
+BIGIP_USER = "admin"
+BIGIP_PASS = "admin"
+
+# ------------------------------------------------------------------------------
+# Kubernetes Helper Functions
+# ------------------------------------------------------------------------------
+def get_dynamic_endpoints(service_name, namespace):
+    """
+    Retrieve backend endpoints (IP addresses) from the given Kubernetes service.
+    This function returns a list of IPs (without ports) for pool members.
+    """
+    v1 = client.CoreV1Api()
+    try:
+        endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
+        addresses = []
+        if endpoints_obj.subsets:
+            for subset in endpoints_obj.subsets:
+                port = subset.ports[0].port
+                for address in subset.addresses:
+                    # Only the IP is needed for pool members.
+                    addresses.append(address.ip)
+        logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
+        return addresses
+    except Exception as e:
+        logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
+        return []
+
 # ------------------------------------------------------------------------------
 # AS3 JSON Generation Functions for Each Use Case.
 # ------------------------------------------------------------------------------
 def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, prediction):
-    """
-    Build a usecase-specific AS3 declaration.
-    For virtualAddresses, a static IP is used (per use case).
-    For pool members, dynamic backend endpoints (list of IPs) are used.
-    """
-    tenantName = f"{tenant}_{usecase}"
+    key = f"{tenant}-{usecase}"
     if usecase == 1:
         # Use Case 1: Dynamic Crypto Offloading.
-        # This configuration sets up an HTTPS virtual server (acme_https_vs) that terminates SSL/TLS
-        # using a TLS_Server object (acmeTLS) and routes decrypted traffic to a backend pool (acme_http_pool).
         return {
             "class": "AS3",
             "action": "deploy",
@@ -108,7 +113,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Dynamic Crypto Offloading",
                 "remark": "HTTPS with round-robin pool for SSL/TLS offloading",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "acme_https_vs": {
@@ -155,7 +160,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Traffic Steering via AI Insights",
                 "remark": "Routing with least-connections load balancing",
-                tenantName : {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTP": {
@@ -187,7 +192,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "SLA Enforcement",
                 "remark": "SLA enforcement with HTTP monitor",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTP": {
@@ -219,7 +224,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Multi-Cluster Ingress/Egress Routing",
                 "remark": "Routing traffic across clusters",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTPS": {
@@ -250,7 +255,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Auto-scale Services",
                 "remark": "Auto-scaling by adjusting connection limits",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTPS": {
@@ -282,7 +287,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Service Discovery & Orchestration",
                 "remark": "Dynamic pool member update for service discovery",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTP": {
@@ -313,7 +318,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Service Resilience & Cluster Maintenance",
                 "remark": "Ensuring minimum active pool members for resilience",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTP": {
@@ -346,7 +351,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "id": f"{tenant}-{timestamp}",
                 "label": "Multi-Layer Security Enforcement",
                 "remark": "Enforcing security policies via WAF and Firewall updates",
-                tenantName: {
+                key: {
                     "class": "Application",
                     "template": "generic",
                     "serviceHTTPS": {
@@ -395,48 +400,29 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
         return {"error": "No AS3 payload defined for this usecase"}
 
 # ------------------------------------------------------------------------------
-# Kubernetes ConfigMap Update Functions.
+# BIG‑IP Update Function.
 # ------------------------------------------------------------------------------
-def update_as3_configmap(as3_payload, usecase):
-    config_map_name = f"as3-json-{usecase}"
-    v1 = client.CoreV1Api()
-    patch_body = {
-        "metadata": {
-            "labels": {
-                "f5type": "virtual-server",
-                "as3": "true"
-            }
-        },
-        "data": {
-            "template": json.dumps(as3_payload, indent=2)
-        }
-    }
+def update_as3(as3_payload, usecase):
+    """
+    Send the AS3 JSON directly to BIG‑IP.
+    """
+    logging.debug("AS3 JSON payload to be sent to BIG‑IP:\n" + json.dumps(as3_payload, indent=2))
     try:
-        logging.debug(f"Patching ConfigMap '{config_map_name}' with: {patch_body}")
-        v1.patch_namespaced_config_map(name=config_map_name, namespace=TARGET_NAMESPACE, body=patch_body)
-        logging.info(f"ConfigMap '{config_map_name}' updated successfully.")
+        response = requests.post(
+            BIGIP_AS3_URL,
+            json=as3_payload,
+            auth=(BIGIP_USER, BIGIP_PASS),
+            verify=False,  # Disable SSL verification for demo purposes.
+            timeout=10
+        )
+        logging.debug(f"BIG‑IP response status: {response.status_code}")
+        logging.debug("BIG‑IP response body: " + response.text)
+        if response.status_code not in [200, 201]:
+            logging.error(f"BIG‑IP AS3 declaration update failed: {response.text}")
+        else:
+            logging.info("BIG‑IP AS3 declaration updated successfully.")
     except Exception as e:
-        logging.error(f"Error patching ConfigMap '{config_map_name}': {e}. Attempting to create it.")
-        config_map_body = {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-                "name": config_map_name,
-                "namespace": TARGET_NAMESPACE,
-                "labels": {
-                    "f5type": "virtual-server",
-                    "as3": "true"
-                }
-            },
-            "data": {
-                "template": json.dumps(as3_payload, indent=2)
-            }
-        }
-        try:
-            v1.create_namespaced_config_map(namespace=TARGET_NAMESPACE, body=config_map_body)
-            logging.info(f"ConfigMap '{config_map_name}' created successfully.")
-        except Exception as create_err:
-            logging.error(f"Failed to create ConfigMap '{config_map_name}': {create_err}")
+        logging.error(f"Error sending AS3 declaration to BIG‑IP: {e}")
 
 # ------------------------------------------------------------------------------
 # Training Data Append Function.
@@ -474,7 +460,7 @@ def process_log():
         service_name = target_info["service"]
         logging.debug(f"Target deployment: {deployment_name}, service: {service_name} for usecase {usecase}")
 
-        # Query the Model Service for prediction.
+        # Forward the TS log to the Model Service for prediction.
         logging.info(f"Querying Model Service at {MODEL_SERVICE_URL} ...")
         response = requests.post(MODEL_SERVICE_URL, json=ts_log, timeout=5)
         logging.debug(f"Model Service response status: {response.status_code}")
@@ -510,7 +496,7 @@ def process_log():
             prediction
         )
         logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
-        update_as3_configmap(as3_payload, usecase)
+        update_as3(as3_payload, usecase)
 
         # Append the TS log for future retraining.
         append_training_data(ts_log, prediction)

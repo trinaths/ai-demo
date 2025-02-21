@@ -4,6 +4,7 @@
 set -e
 NAMESPACE="bigip-demo"
 echo "Deleting all demo resources..."
+kubectl delete -f k8s/pvc.yaml
 kubectl delete namespace "$NAMESPACE"
 kubectl delete -f k8s/cis.yaml
 echo "Cleanup complete."
