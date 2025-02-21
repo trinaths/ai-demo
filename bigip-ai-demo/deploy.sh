@@ -12,6 +12,6 @@ kubectl apply -f k8s/model-service-deployment.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/agent-service-deployment.yaml --namespace "$NAMESPACE"
 kubectl apply -f k8s/sample-deployment.yaml --namespace "$NAMESPACE"
 #kubectl apply -f k8s/model-retrain-cron.yaml --namespace "$NAMESPACE"
-kubectl apply -f k8s/cis.yaml
+#kubectl apply -f k8s/cis.yaml
 echo "Deployment complete. Listing pods in namespace $NAMESPACE:"
 kubectl get pods --namespace "$NAMESPACE"
