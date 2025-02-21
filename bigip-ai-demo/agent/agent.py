@@ -133,7 +133,7 @@ def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
         "declaration": {
             "class": "ADC",
             "schemaVersion": "3.0.0",
-            "id": f"{tenant}-{timestamp}",
+            "id": f"{tenant}-{usecases}",
             "label": f"Update for {tenant}",
             "Common": {
                 "class": "Tenant",

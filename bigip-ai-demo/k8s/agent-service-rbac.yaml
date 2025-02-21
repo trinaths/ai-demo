@@ -12,11 +12,11 @@ rules:
   # Permissions for scaling deployments.
 - apiGroups: ["apps"]
   resources: ["deployments/scale"]
-  verbs: ["get", "update", "patch"]
+  verbs: ["get", "create", "update", "patch", "list"]
   # Permissions to update the AS3 ConfigMap.
 - apiGroups: [""]
   resources: ["configmaps"]
-  verbs: ["get", "update", "patch"]
+  verbs: ["get", "create", "update", "patch", "list"]
   # Permissions to get services.
 - apiGroups: [""]
   resources: ["services", "nodes", "endpoints"]
