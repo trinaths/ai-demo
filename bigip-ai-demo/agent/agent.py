@@ -4,16 +4,16 @@ agent.py
 
 Agent Service that:
 1. Receives synthetic TS logs via /process-log.
-2. Forwards the log to the unified Model Service for prediction.
-3. Retrieves dynamic endpoints from the target Kubernetes Service.
-4. Generates a usecase-specific AS3 JSON declaration:
-   • Uses a static virtual IP (per usecase) for BIG‑IP virtualAddresses.
-   • Uses dynamic backend endpoints for pool members.
-   • Adds dynamic ASM, AFM, and Endpoint policies if the prediction indicates security actions.
-5. Updates a Kubernetes ConfigMap (monitored by F5 CIS) with the AS3 declaration.
-   The ConfigMap name is “as3-json-{usecase}” and is labeled with f5type: virtual-server and as3: "true".
+2. Forwards the log to the unified Model Service for a prediction.
+3. Retrieves dynamic backend endpoints from the target Kubernetes Service.
+4. Generates a usecase‑specific AS3 JSON declaration:
+   • Uses a static virtual IP (per use case) for BIG‑IP virtualAddresses.
+   • Uses dynamic backend endpoints (list of IPs) for pool members.
+   • For each use case the AS3 JSON is built uniquely to simulate various configuration updates.
+5. Updates (or creates) a Kubernetes ConfigMap named "as3-json-{usecase}" with labels 
+   (f5type: virtual-server, as3: "true") so that F5 CIS pushes the configuration.
 6. Scales the target deployment based on the prediction.
-7. Appends the processed log for future retraining.
+7. Appends the processed TS log for future retraining.
 """
 
 import json
@@ -41,10 +41,9 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
-# AS3_CONFIGMAP is no longer used as a single config map; we create one per usecase.
 TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
 
-# Mapping of usecases to deployments and services.
+# Mapping of use cases (1-8) to deployments and services.
 USECASE_DEPLOYMENT_MAP = {
     1: {"deployment": "ai-cluster", "service": "ai-cluster-service"},
     2: {"deployment": "eastwest-app", "service": "eastwest-service"},
@@ -53,10 +52,10 @@ USECASE_DEPLOYMENT_MAP = {
     5: {"deployment": "lowlatency-app", "service": "lowlatency-service"},
     6: {"deployment": "api-gateway", "service": "api-gateway-service"},
     7: {"deployment": "fraud-detection", "service": "fraud-detection-service"},
-    8: {"deployment": "traffic-monitor", "service": "traffic-monitor-service"},
+    8: {"deployment": "traffic-monitor", "service": "traffic-monitor-service"}
 }
 
-# Mapping of usecase to static virtual IP addresses.
+# Mapping of use case to static virtual IP addresses.
 USECASE_VIRTUAL_IPS = {
     1: "192.168.0.101",
     2: "192.168.0.102",
@@ -65,168 +64,323 @@ USECASE_VIRTUAL_IPS = {
     5: "192.168.0.105",
     6: "192.168.0.106",
     7: "192.168.0.107",
-    8: "192.168.0.108",
+    8: "192.168.0.108"
 }
 
 # ------------------------------------------------------------------------------
-# Kubernetes Helper Functions
+# AS3 JSON Generation Functions for Each Use Case.
 # ------------------------------------------------------------------------------
-def get_dynamic_endpoints(service_name, namespace):
+def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, prediction):
     """
-    Retrieve backend endpoints (IP addresses) from the given Kubernetes service.
-    Returns a list of IPs (without ports) for pool members.
+    Build a usecase-specific AS3 declaration.
+    For virtualAddresses, a static IP is used (per use case).
+    For pool members, dynamic backend endpoints (list of IPs) are used.
     """
-    v1 = client.CoreV1Api()
-    try:
-        endpoints_obj = v1.read_namespaced_endpoints(service_name, namespace)
-        addresses = []
-        if endpoints_obj.subsets:
-            for subset in endpoints_obj.subsets:
-                for address in subset.addresses:
-                    addresses.append(address.ip)
-        logging.debug(f"Dynamic endpoints for service '{service_name}': {addresses}")
-        return addresses
-    except Exception as e:
-        logging.error(f"Error fetching endpoints for service '{service_name}': {e}")
-        return []
-
-def update_deployment_scale(deployment_name, namespace, prediction):
-    """
-    Scale the target deployment based on the prediction.
-    If prediction is "scale_up", increase replicas; if "scale_down", decrease.
-    """
-    api_instance = client.AppsV1Api()
-    try:
-        scale_obj = api_instance.read_namespaced_deployment_scale(deployment_name, namespace)
-        current_replicas = scale_obj.spec.replicas
-        logging.debug(f"Current replica count for '{deployment_name}': {current_replicas}")
-        new_replicas = current_replicas
-        if prediction == "scale_up":
-            new_replicas = current_replicas + 1
-        elif prediction == "scale_down" and current_replicas > 1:
-            new_replicas = current_replicas - 1
-
-        if new_replicas != current_replicas:
-            patch = {"spec": {"replicas": new_replicas}}
-            logging.debug(f"Patching deployment '{deployment_name}' with: {patch}")
-            api_instance.patch_namespaced_deployment_scale(deployment_name, namespace, patch)
-            logging.info(f"Deployment '{deployment_name}' scaled from {current_replicas} to {new_replicas}")
-        else:
-            logging.info(f"No scaling change for deployment '{deployment_name}' (replicas remain {current_replicas})")
-        return new_replicas
-    except Exception as e:
-        logging.error(f"Error scaling deployment '{deployment_name}': {e}")
-        return "error"
-
-def get_base_as3(tenant, timestamp, usecase, dynamic_endpoints, prediction):
-    """
-    Build a base AS3 declaration using the latest schema.
-    Uses a static virtual IP (from USECASE_VIRTUAL_IPS) for the virtualAddresses field,
-    and dynamic backend endpoints for pool members.
-    If the prediction indicates enhanced security actions, additional policy objects are added.
-    """
-    virtual_ip = USECASE_VIRTUAL_IPS.get(usecase, "0.0.0.0")
-    as3_payload = {
-        "class": "AS3",
-        "action": "deploy",
-        "persist": True,
-        "declaration": {
-            "class": "ADC",
-            "schemaVersion": "3.0.0",
-            "id": f"{tenant}-{usecase}",
-            "label": f"Update for {tenant}",
-            "Common": {
-                "class": "Tenant",
-                f"{tenant}": {
+    tenantName = f"{tenant}_{usecase}"
+    if usecase == 1:
+        # Use Case 1: Dynamic Crypto Offloading.
+        # This configuration sets up an HTTPS virtual server (acme_https_vs) that terminates SSL/TLS
+        # using a TLS_Server object (acmeTLS) and routes decrypted traffic to a backend pool (acme_http_pool).
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Dynamic Crypto Offloading",
+                "remark": "HTTPS with round-robin pool for SSL/TLS offloading",
+                tenantName: {
                     "class": "Application",
                     "template": "generic",
-                    "serviceHTTP": {
-                        "class": "Service_HTTP",
-                        "virtualAddresses": [virtual_ip],
-                        "pool": "app_pool"
+                    "acme_https_vs": {
+                        "class": "Service_HTTPS",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[1]],
+                        "pool": "acme_http_pool",
+                        "serverTLS": "acmeTLS"
                     },
-                    "app_pool": {
+                    "acme_http_pool": {
                         "class": "Pool",
-                        "members": [
-                            {
-                                "servicePort": 8080,
-                                "serverAddresses": dynamic_endpoints
-                            }
-                        ],
-                        "remark": "Dynamic routing pool"
+                        "loadBalancingMode": "round-robin",
+                        "monitors": ["http"],
+                        "members": [{
+                            "servicePort": 8080,
+                            "shareNodes": True,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Crypto offloading pool; prediction: {prediction}"
+                    },
+                    "acmeTLS": {
+                        "class": "TLS_Server",
+                        "certificates": [{
+                            "certificate": "acmeCert"
+                        }]
+                    },
+                    "acmeCert": {
+                        "class": "Certificate",
+                        "remark": "For demo purposes only; replace with your own certificate",
+                        "certificate": "-----BEGIN CERTIFICATE-----\nMIIDSDCCAjCgAwIBAgIEFPdzHjANBgkqhkiG9w0BAQsFADBmMQswCQYDVQQGEwJVUzETMBEGA1UECBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMHU2VhdHRsZTESMBAGA1UEAxMJQWNtZSBDb3JwMRwwGgYJKoZIhvcNAQkBFg10ZXN0QGFjbWUuY29t\n-----END CERTIFICATE-----",
+                        "privateKey": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDJY9CAD48s0icyWV8zzyp1lruhK5H1IbowZNZ0HafvivGK76HC2Oa22Pw2fYqRM9U8SMmQBpfWgT6CxlOK9lzVTCWQOWaP0DHnRGRWpdeHjh59yTDLwg4xqxWlkfnGdk0fQ/SXccravUClEvyXQimM/0MW8dkOKNJ2Q6pjwIqcP/xNuMuJS8mv0K8G+d+0KAhp8YDKFFTYva7mK5xrUuLj7Yd/o2Jm24r2/BtQfMfdz3nrtUBwZTml6+g53UsCnFCyFLdkcXMmHI83lUOcq3K1R8LxfHm9Ny5ZtdM19FCOvL3Y0LjKXlGeytEZZjufb9Lul3XqCtbPNkifLn7HKiK3AgMBAAEC\n-----END PRIVATE KEY-----"
                     }
                 }
             }
         }
-    }
-    logging.debug("Base AS3 payload created.")
-
-    # Add enhanced security policies if prediction indicates such action.
-    if prediction in ["block_traffic", "update_waf", "update_endpoint_policy"]:
-        extended_signature_groups = [
-            "SQL_Injection", "XSS", "DDoS", "Path_Traversal",
-            "Remote_File_Inclusion", "CSRF", "Malware", "RCE"
-        ]
-        asm_policy = {
-            "class": "ASM_Policy",
-            "policyName": "/Common/asm_policy",
-            "enforcementMode": "blocking",
-            "signatureGroups": extended_signature_groups,
-            "logLevel": "critical",
-            "dynamicRules": {
-                "blockRate": "high",
-                "sensitivity": "high"
-            }
-        }
-        afm_policy = {
-            "class": "AFM_Policy",
-            "policyName": "/Common/afm_policy",
-            "action": "block",
-            "ipReputation": "high",
-            "dynamicRules": {
-                "ipBlockDuration": "600",
-                "threshold": "80%"
-            }
-        }
-        endpoint_policy = {
-            "class": "EndpointPolicy",
-            "policyName": "/Common/endpoint_policy",
-            "rules": [
-                {
-                    "action": "redirect",
-                    "criteria": "low_latency",
-                    "virtualAddress": virtual_ip
+    elif usecase == 2:
+        # Use Case 2: Traffic Steering via AI Insights.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Traffic Steering via AI Insights",
+                "remark": "Routing with least-connections load balancing",
+                tenantName : {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTP": {
+                        "class": "Service_HTTP",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[2]],
+                        "pool": "traffic_steering_pool",
+                        "loadBalancingMode": "least-connections"
+                    },
+                    "traffic_steering_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 80,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Traffic steering; prediction: {prediction}"
+                    }
                 }
-            ]
+            }
         }
-        logging.debug("Enhanced security detected; adding ASM, AFM, and Endpoint policies.")
-        app_obj = as3_payload["declaration"]["Common"][tenant]
-        app_obj["asmPolicy"] = asm_policy
-        app_obj["afmPolicy"] = afm_policy
-        app_obj["endpointPolicy"] = endpoint_policy
+    elif usecase == 3:
+        # Use Case 3: SLA Enforcement.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "SLA Enforcement",
+                "remark": "SLA enforcement with HTTP monitor",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTP": {
+                        "class": "Service_HTTP",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[3]],
+                        "pool": "sla_enforcement_pool",
+                        "monitor": "/Common/http"
+                    },
+                    "sla_enforcement_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 80,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"SLA enforcement; prediction: {prediction}"
+                    }
+                }
+            }
+        }
+    elif usecase == 4:
+        # Use Case 4: Multi-Cluster Ingress/Egress Routing.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Multi-Cluster Ingress/Egress Routing",
+                "remark": "Routing traffic across clusters",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTPS": {
+                        "class": "Service_HTTPS",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[4]],
+                        "pool": "multicluster_pool"
+                    },
+                    "multicluster_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 443,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Routing across clusters; prediction: {prediction}"
+                    }
+                }
+            }
+        }
+    elif usecase == 5:
+        # Use Case 5: Auto-scale Services.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Auto-scale Services",
+                "remark": "Auto-scaling by adjusting connection limits",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTPS": {
+                        "class": "Service_HTTPS",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[5]],
+                        "pool": "autoscale_pool"
+                    },
+                    "autoscale_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 443,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Auto-scale configured; prediction: {prediction}",
+                        "connectionLimit": 5000
+                    }
+                }
+            }
+        }
+    elif usecase == 6:
+        # Use Case 6: Service Discovery & Orchestration.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Service Discovery & Orchestration",
+                "remark": "Dynamic pool member update for service discovery",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTP": {
+                        "class": "Service_HTTP",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[6]],
+                        "pool": "service_discovery_pool"
+                    },
+                    "service_discovery_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 80,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Service discovery updated; prediction: {prediction}"
+                    }
+                }
+            }
+        }
+    elif usecase == 7:
+        # Use Case 7: Service Resilience & Cluster Maintenance.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Service Resilience & Cluster Maintenance",
+                "remark": "Ensuring minimum active pool members for resilience",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTP": {
+                        "class": "Service_HTTP",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[7]],
+                        "pool": "resilience_pool",
+                        "monitor": "/Common/http"
+                    },
+                    "resilience_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 80,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Resilience set; prediction: {prediction}",
+                        "minActiveMembers": 2
+                    }
+                }
+            }
+        }
+    elif usecase == 8:
+        # Use Case 8: Multi-Layer Security Enforcement.
+        return {
+            "class": "AS3",
+            "action": "deploy",
+            "persist": True,
+            "declaration": {
+                "class": "ADC",
+                "schemaVersion": "3.0.0",
+                "id": f"{tenant}-{timestamp}",
+                "label": "Multi-Layer Security Enforcement",
+                "remark": "Enforcing security policies via WAF and Firewall updates",
+                tenantName: {
+                    "class": "Application",
+                    "template": "generic",
+                    "serviceHTTPS": {
+                        "class": "Service_HTTPS",
+                        "virtualAddresses": [USECASE_VIRTUAL_IPS[8]],
+                        "pool": "security_pool"
+                    },
+                    "security_pool": {
+                        "class": "Pool",
+                        "members": [{
+                            "servicePort": 443,
+                            "serverAddresses": dynamic_endpoints
+                        }],
+                        "remark": f"Security enforcement; prediction: {prediction}",
+                        "connectionLimit": 1000,
+                        "monitors": ["http"]
+                    },
+                    "wafPolicy": {
+                        "class": "WAF_Policy",
+                        "policy": "/Common/waf_policy",
+                        "alertOnly": False,
+                        "remark": "Dynamic WAF policy for security"
+                    },
+                    "firewallPolicy": {
+                        "class": "Firewall_Rule_List",
+                        "remark": "Dynamic Firewall policy for security",
+                        "rules": [
+                            {
+                                "name": "block_tcp",
+                                "action": "reject",
+                                "protocol": "tcp",
+                                "loggingEnabled": True
+                            },
+                            {
+                                "name": "block_udp",
+                                "action": "reject",
+                                "protocol": "udp",
+                                "loggingEnabled": True
+                            }
+                        ]
+                    }
+                }
+            }
+        }
     else:
-        logging.debug("No enhanced security policies added based on prediction.")
+        return {"error": "No AS3 payload defined for this usecase"}
 
-    logging.debug(f"Final AS3 payload: {json.dumps(as3_payload, indent=2)}")
-    return as3_payload
-
+# ------------------------------------------------------------------------------
+# Kubernetes ConfigMap Update Functions.
+# ------------------------------------------------------------------------------
 def update_as3_configmap(as3_payload, usecase):
-    """
-    Update (or create) a ConfigMap with a name based on the usecase.
-    The ConfigMap follows the structure:
-    
-      kind: ConfigMap
-      apiVersion: v1
-      metadata:
-        name: as3-json-{usecase}
-        namespace: bigip-demo
-        labels:
-          f5type: virtual-server
-          as3: "true"
-      data:
-        template: |
-          { <AS3 JSON> }
-    """
     config_map_name = f"as3-json-{usecase}"
     v1 = client.CoreV1Api()
     patch_body = {
@@ -241,7 +395,7 @@ def update_as3_configmap(as3_payload, usecase):
         }
     }
     try:
-        logging.debug(f"Attempting to patch ConfigMap '{config_map_name}' with: {patch_body}")
+        logging.debug(f"Patching ConfigMap '{config_map_name}' with: {patch_body}")
         v1.patch_namespaced_config_map(name=config_map_name, namespace=TARGET_NAMESPACE, body=patch_body)
         logging.info(f"ConfigMap '{config_map_name}' updated successfully.")
     except Exception as e:
@@ -267,10 +421,10 @@ def update_as3_configmap(as3_payload, usecase):
         except Exception as create_err:
             logging.error(f"Failed to create ConfigMap '{config_map_name}': {create_err}")
 
+# ------------------------------------------------------------------------------
+# Training Data Append Function.
+# ------------------------------------------------------------------------------
 def append_training_data(ts_log, prediction):
-    """
-    Append the processed TS log with its predicted label to a file for future retraining.
-    """
     ts_log["predicted_label"] = prediction
     try:
         os.makedirs(os.path.dirname(TRAINING_DATA_PATH), exist_ok=True)
@@ -280,6 +434,9 @@ def append_training_data(ts_log, prediction):
     except Exception as e:
         logging.error(f"Error appending training data: {e}")
 
+# ------------------------------------------------------------------------------
+# Agent Service Endpoint.
+# ------------------------------------------------------------------------------
 @app.route("/process-log", methods=["POST"])
 def process_log():
     try:
@@ -312,9 +469,9 @@ def process_log():
         prediction = response.json().get("prediction", "no_change")
         logging.info(f"Model prediction: {prediction}")
 
-        # Scale the target deployment if scaling is indicated.
+        # Scale the target deployment if prediction indicates scaling.
         if prediction in ["scale_up", "scale_down"]:
-            logging.debug(f"Scaling deployment '{deployment_name}' due to prediction '{prediction}'")
+            logging.debug(f"Scaling deployment '{deployment_name}' based on prediction '{prediction}'")
             replica_count = update_deployment_scale(deployment_name, TARGET_NAMESPACE, prediction)
         else:
             replica_count = "unchanged"
@@ -327,18 +484,20 @@ def process_log():
             logging.error(error_msg)
             return jsonify({"error": error_msg}), 500
 
-        # Build the AS3 payload using static virtual IP (per usecase) and dynamic endpoints.
-        as3_payload = get_base_as3(ts_log.get("tenant", "Tenant_Default"),
-                                   ts_log.get("timestamp", ""),
-                                   usecase,
-                                   dynamic_endpoints,
-                                   prediction)
+        # Build the usecase-specific AS3 payload.
+        as3_payload = get_as3_payload_for_usecase(
+            usecase,
+            ts_log.get("tenant", "Tenant_Default"),
+            ts_log.get("timestamp", ""),
+            dynamic_endpoints,
+            prediction
+        )
         logging.info("Generated AS3 payload:\n" + json.dumps(as3_payload, indent=2))
         update_as3_configmap(as3_payload, usecase)
 
-        # Append the TS log along with its prediction for future retraining.
+        # Append the TS log for future retraining.
         append_training_data(ts_log, prediction)
-        logging.debug("Finished processing TS log; sending response back to caller.")
+        logging.debug("Finished processing TS log; sending response.")
 
         return jsonify({
             "status": "success",
