@@ -41,7 +41,7 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 MODEL_SERVICE_URL = "http://10.4.1.115:30000/predict"  # Unified Model Service endpoint
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "bigip-demo")
-TRAINING_DATA_PATH = "/app/models/accumulated_ts_logs.jsonl"
+TRAINING_DATA_PATH = "/app/models/synthetic_ts_logs.jsonl"
 
 # Mapping of use cases (1-8) to deployments and services.
 USECASE_DEPLOYMENT_MAP = {
