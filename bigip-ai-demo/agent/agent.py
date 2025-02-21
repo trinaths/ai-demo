@@ -204,7 +204,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "shareNodes": True,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Traffic steering; prediction: {prediction}"
+                            "remark": "Routing with least-connections load balancing"
                         }
                     }
                 }
@@ -240,7 +240,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "shareNodes": True,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"SLA enforcement; prediction: {prediction}"
+                            "remark": "SLA enforcement with HTTP monitor"
                         }
                     }
                 }
@@ -275,7 +275,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "shareNodes": True,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Routing across clusters; prediction: {prediction}"
+                            "remark": "Routing traffic across clusters"
                         }
                     }
                 }
@@ -311,7 +311,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "connectionLimit": 5000,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Auto-scale configured; prediction: {prediction}"
+                            "remark": "Auto-scaling by adjusting connection limits"
                         }
                     }
                 }
@@ -346,7 +346,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "shareNodes": True,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Service discovery updated; prediction: {prediction}"
+                            "remark": "Dynamic pool member update for service discovery"
                         }
                     }
                 }
@@ -382,7 +382,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "shareNodes": True,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Resilience set; prediction: {prediction}",
+                            "remark": "Ensuring minimum active pool members for resilience",
                             "minimumMembersActive": 2
                         }
                     }
@@ -400,7 +400,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                 "schemaVersion": "3.0.0",
                 "id": f"{tenant}-{timestamp}",
                 "label": "Multi-Layer Security Enforcement",
-                "remark": "Enforcing security policies via WAF and Firewall updates",
+                "remark": "Enforcing security policies vwith WAF",
                 app_key: {
                     "class": "Tenant",
                     app_key: {
@@ -423,7 +423,7 @@ def get_as3_payload_for_usecase(usecase, tenant, timestamp, dynamic_endpoints, p
                                 "connectionLimit": 1000,
                                 "serverAddresses": dynamic_endpoints
                             }],
-                            "remark": f"Security enforcement; prediction: {prediction}",
+                            "remark": "Enforcing security policies with WAF",
                         }
                     }
                 }
